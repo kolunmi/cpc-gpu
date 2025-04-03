@@ -1,0 +1,9 @@
+option('gobject',
+       type: 'boolean', value: true,
+       description: 'Provide gobject boxed types')
+option('epoxy',
+       type: 'boolean', value: false,
+       description: 'Use the epoxy library for OpenGL instead of GLAD')
+option('example',
+       type: 'boolean', value: false,
+       description: 'Build example, which will pull in gtk4 dependency')

@@ -1,0 +1,97 @@
+/* cpc-gpu-version.h.in
+ *
+ * Copyright 2025 Adam Masciola
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
+
+#pragma once
+
+#if !defined(CPC_GPU_INSIDE) && !defined(CPC_GPU_COMPILATION)
+#error "Only <cpc-gpu.h> can be included directly."
+#endif
+
+/**
+ * SECTION:cpc-gpuversion
+ * @short_description: cpc-gpu version checking
+ *
+ * cpc-gpu provides macros to check the version of the library
+ * at compile-time
+ */
+
+/**
+ * CPC_GPU_MAJOR_VERSION:
+ *
+ * cpc-gpu major version component (e.g. 1 if %CPC_GPU_VERSION is 1.2.3)
+ */
+#define CPC_GPU_MAJOR_VERSION (@MAJOR_VERSION@)
+
+/**
+ * CPC_GPU_MINOR_VERSION:
+ *
+ * cpc-gpu minor version component (e.g. 2 if %CPC_GPU_VERSION is 1.2.3)
+ */
+#define CPC_GPU_MINOR_VERSION (@MINOR_VERSION@)
+
+/**
+ * CPC_GPU_MICRO_VERSION:
+ *
+ * cpc-gpu micro version component (e.g. 3 if %CPC_GPU_VERSION is 1.2.3)
+ */
+#define CPC_GPU_MICRO_VERSION (@MICRO_VERSION@)
+
+/**
+ * CPC_GPU_VERSION
+ *
+ * cpc-gpu version.
+ */
+#define CPC_GPU_VERSION (@VERSION@)
+
+/**
+ * CPC_GPU_VERSION_S:
+ *
+ * cpc-gpu version, encoded as a string, useful for printing and
+ * concatenation.
+ */
+#define CPC_GPU_VERSION_S "@VERSION@"
+
+#define CPC_GPU_ENCODE_VERSION(major,minor,micro) \
+        ((major) << 24 | (minor) << 16 | (micro) << 8)
+
+/**
+ * CPC_GPU_VERSION_HEX:
+ *
+ * cpc-gpu version, encoded as an hexadecimal number, useful for
+ * integer comparisons.
+ */
+#define CPC_GPU_VERSION_HEX \
+        (CPC_GPU_ENCODE_VERSION (CPC_GPU_MAJOR_VERSION, CPC_GPU_MINOR_VERSION, CPC_GPU_MICRO_VERSION))
+
+/**
+ * CPC_GPU_CHECK_VERSION:
+ * @major: required major version
+ * @minor: required minor version
+ * @micro: required micro version
+ *
+ * Compile-time version checking. Evaluates to %TRUE if the version
+ * of cpc-gpu is greater than the required one.
+ */
+#define CPC_GPU_CHECK_VERSION(major,minor,micro)   \
+        (CPC_GPU_MAJOR_VERSION > (major) || \
+         (CPC_GPU_MAJOR_VERSION == (major) && CPC_GPU_MINOR_VERSION > (minor)) || \
+         (CPC_GPU_MAJOR_VERSION == (major) && CPC_GPU_MINOR_VERSION == (minor) && \
+          CPC_GPU_MICRO_VERSION >= (micro)))
