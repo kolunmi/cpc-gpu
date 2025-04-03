@@ -28,7 +28,7 @@
  * This library abstracts the usage of a graphics API. All
  * supported backends are handled internally, and the specific
  * backend utilized is only ever specified once upon initialization
- * of a master object of type @a CpcGpu . The currently supported
+ * of a master object of type @a CgGpu . The currently supported
  * backends are OpenGL and one day Vulkan.
  *
  * Note that this library is not responsible for the creation of
@@ -60,7 +60,7 @@
  * zero out the location of the strong reference:
  *
  * ```c
- * CpcGpuBuffer *location = cg_buffer_ref (buffer);
+ * CgBuffer *location = cg_buffer_ref (buffer);
  * // ...
  * g_clear_pointer (&location, cg_buffer_unref);
  * ```

@@ -172,11 +172,6 @@ cg_gpu_unref (gpointer self)
   gpu->impl->gpu_unref (self);
 }
 
-void
-cg_priv_finish (CgGpu *self)
-{
-}
-
 char *
 cg_gpu_get_info (CgGpu *self,
                  const char *param,
