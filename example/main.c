@@ -275,7 +275,6 @@ main (int argc,
       g_critical ("Couldn't load 'example/Icon.png': %s "
                   "(Are you are running from the root dir of the repo?)",
                   local_error->message);
-      g_error_free (local_error);
       return 1;
     }
 

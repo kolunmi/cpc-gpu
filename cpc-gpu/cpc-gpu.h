@@ -620,24 +620,24 @@ CgBuffer *cg_buffer_new_for_data_take (
     gsize size) G_GNUC_WARN_UNUSED_RESULT;
 
 /*! @brief Create a strong reference to
- *         a @a CgGpuBuffer object.
+ *         a @a CgBuffer object.
  *
  * @param [in] self The object.
  *
  * @return The newly referenced object.
  *
- * @memberof CgGpuBuffer
+ * @memberof CgBuffer
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
 CgBuffer *cg_buffer_ref (CgBuffer *self);
 
 /*! @brief Release a strong reference
- *         from a @a CgGpuBuffer object.
+ *         from a @a CgBuffer object.
  *
  * @param [in] self The object.
  *
- * @memberof CgGpuBuffer
+ * @memberof CgBuffer
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -650,7 +650,7 @@ void cg_buffer_unref (gpointer self);
  * @param [in] segments The data layout spec.
  * @param [in] n_segments The length of the layout.
  *
- * @memberof CgGpuBuffer
+ * @memberof CgBuffer
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -659,7 +659,7 @@ void cg_buffer_hint_layout (
     const CgDataSegment *segments,
     guint n_segments);
 
-/*! @brief Create a new @a CgGpuTexture
+/*! @brief Create a new @a CgTexture
  *         with initial duplicated data.
  *
  * @param [in] self The GPU object.
@@ -673,7 +673,7 @@ void cg_buffer_hint_layout (
  *
  * @return The newly allocated object.
  *
- * @memberof CgGpuTexture
+ * @memberof CgTexture
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -701,7 +701,7 @@ CgTexture *cg_texture_new_for_data (
  *
  * @return The newly allocated object.
  *
- * @memberof CgGpuTexture
+ * @memberof CgTexture
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -715,7 +715,7 @@ CgTexture *cg_texture_new_for_data_take (
     int mipmaps,
     int msaa) G_GNUC_WARN_UNUSED_RESULT;
 
-/*! @brief Create a new @a CgGpuTexture
+/*! @brief Create a new @a CgTexture
  *         with initial duplicated data
  *         as a cubemap.
  *
@@ -727,7 +727,7 @@ CgTexture *cg_texture_new_for_data_take (
  *
  * @return The newly allocated object.
  *
- * @memberof CgGpuTexture
+ * @memberof CgTexture
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -749,7 +749,7 @@ CgTexture *cg_texture_new_cubemap_for_data (
  *
  * @return The newly allocated object.
  *
- * @memberof CgGpuTexture
+ * @memberof CgTexture
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -760,7 +760,7 @@ CgTexture *cg_texture_new_cubemap_for_data_take (
     int image_size,
     int format) G_GNUC_WARN_UNUSED_RESULT;
 
-/*! @brief Create a new @a CgGpuTexture capable
+/*! @brief Create a new @a CgTexture capable
  *         only of holding a depth component.
  *
  * @param [in] self The GPU object.
@@ -770,7 +770,7 @@ CgTexture *cg_texture_new_cubemap_for_data_take (
  *
  * @return The newly allocated object.
  *
- * @memberof CgGpuTexture
+ * @memberof CgTexture
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -781,60 +781,60 @@ CgTexture *cg_texture_new_depth (
     int msaa) G_GNUC_WARN_UNUSED_RESULT;
 
 /*! @brief Create a strong reference to
- *         a @a CgGpuTexture object.
+ *         a @a CgTexture object.
  *
  * @param [in] self The object.
  *
  * @return The newly referenced object.
  *
- * @memberof CgGpuTexture
+ * @memberof CgTexture
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
 CgTexture *cg_texture_ref (CgTexture *self);
 
 /*! @brief Release a strong reference
- *         from a @a CgGpuTexture object.
+ *         from a @a CgTexture object.
  *
  * @param [in] self The object.
  *
- * @memberof CgGpuTexture
+ * @memberof CgTexture
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
 void cg_texture_unref (gpointer self);
 
-/*! @brief Create a new @a CgGpuPlan object.
+/*! @brief Create a new @a CgPlan object.
  *
  * @param [in] self The GPU object.
  *
  * @return The newly allocated object.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
 CgPlan *cg_plan_new (CgGpu *self) G_GNUC_WARN_UNUSED_RESULT;
 
 /*! @brief Create a strong reference to
- *         a @a CgGpuPlan object.
+ *         a @a CgPlan object.
  *
  * @param [in] self The object.
  *
  * @return The newly referenced object.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
 CgPlan *cg_plan_ref (CgPlan *self);
 
 /*! @brief Release a strong reference
- *         from a @a CgGpuPlan object.
+ *         from a @a CgPlan object.
  *
  * @param [in] self The object.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -848,7 +848,7 @@ void cg_plan_unref (gpointer self);
  * This function must always be paired with
  * a following @a cg_plan_push_group
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -861,7 +861,7 @@ void cg_plan_begin_config (CgPlan *self);
  * @param [in] first_target The first target to add.
  * @param [in] ... Remaining targets, terminated with `NULL`.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -877,7 +877,7 @@ void cg_plan_config_targets (
  * @param [in] targets A buffer of targets.
  * @param [in] n_targets The length of the buffer.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -892,7 +892,7 @@ void cg_plan_config_targets_v (
  * @param [in] self The plan object.
  * @param [in] shader A shader object.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -909,7 +909,7 @@ void cg_plan_config_shader (
  * @param [in] ... Remaining name-value pairs,
  *             terminated with `NULL`.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -927,7 +927,7 @@ void cg_plan_config_uniforms (
  * @param [in] values A buffer of values.
  * @param [in] n_uniforms The length of the buffers.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -946,7 +946,7 @@ void cg_plan_config_uniforms_v (
  * @param [in] width The width of the viewport.
  * @param [in] height The height of the viewport.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -963,7 +963,7 @@ void cg_plan_config_dest (
  * @param [in] self The plan object.
  * @param [in] mask The write bitmask.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -977,7 +977,7 @@ void cg_plan_config_write_mask (
  * @param [in] self The plan object.
  * @param [in] func The test func enum.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -993,7 +993,7 @@ void cg_plan_config_depth_test_func (
  * This function must always be paired with
  * a preceding @a cg_plan_begin_config
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -1025,7 +1025,7 @@ void cg_plan_push_group (CgPlan *self);
  * cg_plan_pop (plan);
  * ```
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -1043,7 +1043,7 @@ void cg_plan_push_state (
  * @param [in] ... Remaining buffer objects,
  *             terminated with `NULL`.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -1059,7 +1059,7 @@ void cg_plan_append_vertices (
  * @param [in] vertices A buffer of vertex buffers.
  * @param [in] n_vertices The length of the buffer.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -1080,7 +1080,7 @@ void cg_plan_append_vertices_v (
  * a preceding @a cg_plan_push_group or
  * @a cg_plan_push_state .
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -1092,7 +1092,7 @@ void cg_plan_pop_n_groups (
  *
  * @param [in] self The plan object.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 #define cg_plan_pop(self) \
@@ -1107,17 +1107,17 @@ void cg_plan_pop_n_groups (
  *
  * This function will invoke the backend, which in turn
  * will attempt to consume and compile the plan into a
- * @a CgGpuCommands object.
+ * @a CgCommands object.
  *
  * It is programmer error to call this function such that the
  * last reference to the plan will not be released. If references
  * are still held elsewhere, the function will log a critical
  * error and return `NULL`.
  *
- * @return A newly allocated @a CgGpuCommands object,
+ * @return A newly allocated @a CgCommands object,
  *         or `NULL` if an error occured.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -1126,24 +1126,24 @@ CgCommands *cg_plan_unref_to_commands (
     GError **error) G_GNUC_WARN_UNUSED_RESULT;
 
 /*! @brief Create a strong reference to
- *         a @a CgGpuCommands object.
+ *         a @a CgCommands object.
  *
  * @param [in] self The object.
  *
  * @return The newly referenced object.
  *
- * @memberof CgGpuCommands
+ * @memberof CgCommands
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
 CgCommands *cg_commands_ref (CgCommands *self);
 
 /*! @brief Release a strong reference
- *         from a @a CgGpuCommands object.
+ *         from a @a CgCommands object.
  *
  * @param [in] self The object.
  *
- * @memberof CgGpuCommands
+ * @memberof CgCommands
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
@@ -1157,7 +1157,7 @@ void cg_commands_unref (gpointer self);
  *
  * @return Whether an error occured.
  *
- * @memberof CgGpuPlan
+ * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
