@@ -223,9 +223,13 @@ typedef struct _CgCommands CgCommands;
  */
 typedef struct
 {
-  char *name; /*!< The attribute name. */
-  int type;   /*!< The data type. */
-  int num;    /*!< The length of this segment. */
+  char *name;        /*!< The attribute name. */
+  int type;          /*!< The data type. */
+  int num;           /*!< The length of this segment. */
+  int instance_rate; /*!< The rate at which the segment is applied
+                          per instanced render. 0 indicates that
+                          the segment will be applied once for
+                          every element. */
 } CgDataSegment;
 
 /*! @brief Initialization flags.
@@ -1035,38 +1039,44 @@ void cg_plan_push_state (
     const CgValue *first_value,
     ...) G_GNUC_NULL_TERMINATED;
 
-/*! @brief Append vertex buffers to be
+/*! @brief Append buffers to be
  *         included in the output.
  *
  * @param [in] self The plan object.
- * @param [in] first_vertices The first buffer object.
+ * @param [in] instances The number of
+ *        times to process the buffers.
+ * @param [in] first_buffer The first buffer object.
  * @param [in] ... Remaining buffer objects,
- *             terminated with `NULL`.
+ *        terminated with `NULL`.
  *
  * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
-void cg_plan_append_vertices (
+void cg_plan_append (
     CgPlan *self,
-    CgBuffer *first_vertices,
+    guint instances,
+    CgBuffer *first_buffer,
     ...) G_GNUC_NULL_TERMINATED;
 
-/*! @brief Like @a cg_plan_append_vertices
- *         but read a sized buffer instead.
+/*! @brief Like @a cg_plan_append but
+ *         read a sized buffer instead.
  *
  * @param [in] self The plan object.
- * @param [in] vertices A buffer of vertex buffers.
- * @param [in] n_vertices The length of the buffer.
+ * @param [in] instances The number of
+ *        times to process the buffers.
+ * @param [in] buffer A buffer of @a CgBuffer .
+ * @param [in] n_buffers The length of the buffer.
  *
  * @memberof CgPlan
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
-void cg_plan_append_vertices_v (
+void cg_plan_append_v (
     CgPlan *self,
-    CgBuffer **vertices,
-    guint n_vertices);
+    guint instances,
+    CgBuffer **buffers,
+    guint n_buffers);
 
 /*! @brief Terminate the current child group
  *         and in turn restore the state of the

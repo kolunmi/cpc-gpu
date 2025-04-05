@@ -11,5 +11,10 @@ Build with:
 
 Take a look at meson_options.txt
 
-To build the example, you must do:
+To build the example, you must configure like this:
 > meson setup build -Depoxy=true -Dexample=true
+
+Running the example:
+> ./build/example/cpc-gpu-example
+
+The example requires gtk4 to be installed

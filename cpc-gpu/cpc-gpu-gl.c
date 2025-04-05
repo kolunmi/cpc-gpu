@@ -846,7 +846,7 @@ ensure_vertices (CgBuffer *self,
   guint vao_id = 0;
   guint vbo_id = 0;
 
-  if (gl_buffer->ubo_id)
+  if (gl_buffer->ubo_id > 0)
     {
       CGL_CRITICAL_USER_ERROR (
           "Buffer previously initialized as a uniform buffer "
@@ -1367,14 +1367,20 @@ ensure_instr_node (GNode *node,
       break;
     case CG_PRIV_INSTR_VERTICES:
       {
-        for (guint i = 0; i < instr->vertices->len; i++)
+        if (instr->vertices.n_buffers > 1)
           {
-            gboolean success = FALSE;
-            CgBuffer *vertices = NULL;
-
-            vertices = g_ptr_array_index (instr->vertices, i);
-            success = ensure_vertices (vertices, data->error);
-            if (!success)
+            for (guint i = 0; i < instr->vertices.n_buffers; i++)
+              {
+                if (!ensure_vertices (instr->vertices.many_buffers[i], data->error))
+                  {
+                    data->failure = TRUE;
+                    return TRUE;
+                  }
+              }
+          }
+        else
+          {
+            if (!ensure_vertices (instr->vertices.one_buffer, data->error))
               {
                 data->failure = TRUE;
                 return TRUE;
@@ -1689,15 +1695,15 @@ setup_or_teardown (GLuint framebuffer,
           break;
         case CG_TYPE_INT:
           if (!teardown)
-            glUniform1iv (uniform->location, 1, &value->i);
+            glUniform1i (uniform->location, value->i);
           break;
         case CG_TYPE_UINT:
           if (!teardown)
-            glUniform1uiv (uniform->location, 1, &value->ui);
+            glUniform1ui (uniform->location, value->ui);
           break;
         case CG_TYPE_FLOAT:
           if (!teardown)
-            glUniform1fv (uniform->location, 1, &value->f);
+            glUniform1f (uniform->location, value->f);
           break;
         case CG_TYPE_VEC2:
           if (!teardown)
@@ -1721,6 +1727,104 @@ setup_or_teardown (GLuint framebuffer,
     }
 
   return TRUE;
+}
+
+static void
+draw_vertices (CgBuffer **buffers,
+               guint n_buffers,
+               CgShader *shader,
+               guint instances)
+{
+  CglShader *gl_shader = (CglShader *)shader;
+  CglBuffer *first_buffer = (CglBuffer *)*buffers;
+  guint max_length = 0;
+
+  glBindVertexArray (first_buffer->vao_id);
+
+  for (guint i = 0; i < n_buffers; i++)
+    {
+      CglBuffer *gl_buffer = NULL;
+
+      gl_buffer = (CglBuffer *)buffers[i];
+      glBindBuffer (GL_ARRAY_BUFFER, gl_buffer->vbo_id);
+
+      if (buffers[i]->layout != NULL)
+        {
+          gsize stride = 0;
+          gsize offset = 0;
+
+          for (guint j = 0; j < buffers[i]->layout_len; j++)
+            stride += buffers[i]->layout[j].num
+                      * (buffers[i]->layout[j].type == CG_TYPE_FLOAT
+                             ? sizeof (float)
+                             : sizeof (guchar));
+
+          for (guint j = 0; j < buffers[i]->layout_len; j++)
+            {
+              ShaderLocation *attribute = NULL;
+
+              attribute = g_hash_table_lookup (
+                  gl_shader->attribute_assoc,
+                  buffers[i]->layout[j].name);
+
+              if (attribute != NULL)
+                {
+                  glVertexAttribPointer (
+                      attribute->location,
+                      buffers[i]->layout[j].num,
+                      buffers[i]->layout[j].type == CG_TYPE_FLOAT
+                          ? GL_FLOAT
+                          : GL_UNSIGNED_BYTE,
+                      GL_FALSE,
+                      stride,
+                      GSIZE_TO_POINTER (offset));
+                  glVertexAttribDivisor (
+                      attribute->location,
+                      buffers[i]->layout[j].instance_rate);
+                  glEnableVertexAttribArray (attribute->location);
+                }
+
+              offset += buffers[i]->layout[j].num
+                        * (buffers[i]->layout[j].type == CG_TYPE_FLOAT
+                               ? sizeof (float)
+                               : sizeof (guchar));
+            }
+
+          gl_buffer->length = buffers[i]->init.size / stride;
+          if (gl_buffer->length > max_length)
+            max_length = gl_buffer->length;
+        }
+    }
+
+  if (instances > 1)
+    glDrawArraysInstanced (GL_TRIANGLES, 0, max_length, instances);
+  else
+    glDrawArrays (GL_TRIANGLES, 0, max_length);
+
+  for (guint i = 0; i < n_buffers; i++)
+    {
+      CglBuffer *gl_buffer = NULL;
+
+      gl_buffer = (CglBuffer *)buffers[i];
+      glBindBuffer (GL_ARRAY_BUFFER, gl_buffer->vbo_id);
+
+      if (buffers[i]->layout != NULL)
+        {
+          for (guint j = 0; j < buffers[i]->layout_len; j++)
+            {
+              ShaderLocation *attribute = NULL;
+
+              attribute = g_hash_table_lookup (
+                  gl_shader->attribute_assoc,
+                  buffers[i]->layout[j].name);
+
+              if (attribute != NULL)
+                glDisableVertexAttribArray (attribute->location);
+            }
+        }
+    }
+
+  glBindVertexArray (0);
 }
 
 static gboolean
@@ -1759,93 +1863,26 @@ process_instr_node (GNode *node,
           pass_instr, data, FALSE))
     return TRUE;
 
+  if (node->prev != NULL
+      && ((CgPrivInstr *)node->prev->data)->type
+             == CG_PRIV_INSTR_PASS)
+    {
+      glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
+      glUseProgram (gl_shader->program);
+    }
+
   switch (instr->type)
     {
     case CG_PRIV_INSTR_VERTICES:
-      if (node->prev != NULL
-          && ((CgPrivInstr *)node->prev->data)->type
-                 != CG_PRIV_INSTR_VERTICES)
-        {
-          glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
-          glUseProgram (gl_shader->program);
-        }
-
-      for (guint i = 0; i < instr->vertices->len; i++)
-        {
-          CgBuffer *buffer = NULL;
-          CglBuffer *gl_buffer = NULL;
-
-          buffer = g_ptr_array_index (instr->vertices, i);
-          gl_buffer = (CglBuffer *)buffer;
-
-          glBindBuffer (GL_ARRAY_BUFFER, gl_buffer->vbo_id);
-          glBindVertexArray (gl_buffer->vao_id);
-
-          if (buffer->pending_layout != NULL)
-            {
-              gsize stride = 0;
-              gsize offset = 0;
-
-              for (guint j = 0; j < buffer->pending_layout_len; j++)
-                stride += buffer->pending_layout[j].num
-                          * (buffer->pending_layout[j].type == CG_TYPE_FLOAT
-                                 ? sizeof (float)
-                                 : sizeof (guchar));
-
-              for (guint j = 0; j < buffer->pending_layout_len; j++)
-                {
-                  ShaderLocation *attribute = NULL;
-
-                  attribute = g_hash_table_lookup (
-                      gl_shader->attribute_assoc,
-                      buffer->pending_layout[j].name);
-
-                  if (attribute != NULL)
-                    {
-                      glEnableVertexAttribArray (attribute->location);
-                      glVertexAttribPointer (
-                          attribute->location,
-                          buffer->pending_layout[j].num,
-                          buffer->pending_layout[j].type == CG_TYPE_FLOAT
-                              ? GL_FLOAT
-                              : GL_UNSIGNED_BYTE,
-                          GL_FALSE,
-                          stride,
-                          GSIZE_TO_POINTER (offset));
-                    }
-
-                  offset += buffer->pending_layout[j].num
-                            * (buffer->pending_layout[j].type == CG_TYPE_FLOAT
-                                   ? sizeof (float)
-                                   : sizeof (guchar));
-                }
-
-              gl_buffer->length = buffer->init.size / stride;
-              /* clear_data_layout (buffer->pending_layout, buffer->pending_layout_len); */
-              /* g_clear_pointer (&buffer->pending_layout, g_free); */
-            }
-
-          glBindVertexArray (gl_buffer->vao_id);
-          glDrawArrays (GL_TRIANGLES, 0, gl_buffer->length);
-          glBindVertexArray (0);
-
-          glBindVertexArray (gl_buffer->vao_id);
-          if (buffer->pending_layout != NULL)
-            {
-              for (guint j = 0; j < buffer->pending_layout_len; j++)
-                {
-                  ShaderLocation *attribute = NULL;
-
-                  attribute = g_hash_table_lookup (
-                      gl_shader->attribute_assoc,
-                      buffer->pending_layout[j].name);
-
-                  if (attribute != NULL)
-                    glDisableVertexAttribArray (attribute->location);
-                }
-            }
-          glBindVertexArray (0);
-        }
+      if (instr->vertices.n_buffers > 1)
+        draw_vertices (
+            instr->vertices.many_buffers,
+            instr->vertices.n_buffers,
+            shader, instr->vertices.instances);
+      else
+        draw_vertices (
+            &instr->vertices.one_buffer, 1,
+            shader, instr->vertices.instances);
       break;
     default:
       g_assert_not_reached ();

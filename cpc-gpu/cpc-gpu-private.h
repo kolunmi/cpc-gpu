@@ -154,7 +154,16 @@ typedef struct
       int depth_test_func;
     } pass;
 
-    GPtrArray *vertices;
+    struct
+    {
+      guint n_buffers;
+      union
+      {
+        CgBuffer *one_buffer;
+        CgBuffer **many_buffers;
+      };
+      guint instances;
+    } vertices;
   };
 
   gpointer user_data;
@@ -190,8 +199,8 @@ struct _CgBuffer
 {
   CgGpu *gpu;
 
-  CgDataSegment *pending_layout;
-  guint pending_layout_len;
+  CgDataSegment *layout;
+  guint layout_len;
 
   struct
   {

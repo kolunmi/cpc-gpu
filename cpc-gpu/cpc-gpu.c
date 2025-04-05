@@ -254,7 +254,14 @@ destroy_instr_node_data (GNode *node,
       g_clear_pointer (&instr->pass.uniforms.order, g_ptr_array_unref);
       break;
     case CG_PRIV_INSTR_VERTICES:
-      g_clear_pointer (&instr->vertices, g_ptr_array_unref);
+      if (instr->vertices.n_buffers > 1)
+        {
+          for (guint i = 0; i < instr->vertices.n_buffers; i++)
+            cg_buffer_unref (instr->vertices.many_buffers[i]);
+          g_free (instr->vertices.many_buffers);
+        }
+      else
+        g_clear_pointer (&instr->vertices.one_buffer, cg_buffer_unref);
       break;
     }
 
@@ -306,8 +313,8 @@ void
 cg_priv_buffer_finish (CgBuffer *self)
 {
   g_clear_pointer (&self->init.data, g_free);
-  clear_data_layout (self->pending_layout, self->pending_layout_len);
-  g_clear_pointer (&self->pending_layout, g_free);
+  clear_data_layout (self->layout, self->layout_len);
+  g_clear_pointer (&self->layout, g_free);
   g_clear_pointer (&self->gpu, cg_gpu_unref);
 }
 
@@ -451,11 +458,12 @@ cg_buffer_hint_layout (
       segments_dup[i].name = g_strdup (segments[i].name);
       segments_dup[i].num = segments[i].num;
       segments_dup[i].type = segments[i].type;
+      segments_dup[i].instance_rate = segments[i].instance_rate;
     }
 
-  clear_data_layout (self->pending_layout, self->pending_layout_len);
-  CG_PRIV_REPLACE_POINTER (&self->pending_layout, g_steal_pointer (&segments_dup), g_free);
-  self->pending_layout_len = n_segments;
+  clear_data_layout (self->layout, self->layout_len);
+  CG_PRIV_REPLACE_POINTER (&self->layout, g_steal_pointer (&segments_dup), g_free);
+  self->layout_len = n_segments;
 }
 
 CgTexture *
@@ -948,45 +956,6 @@ cg_plan_push_state (
   cg_plan_push_group (self);
 }
 
-#define DEFINE_APPEND_OP_INNER_FUNC(name, type_name, type_enum, member, ref, unref) \
-  static void                                                                       \
-  name (CgPlan *self,                                                               \
-        type_name **objects,                                                        \
-        guint n_objects)                                                            \
-  {                                                                                 \
-    GNode *child = NULL;                                                            \
-    CgPrivInstr *instr = NULL;                                                      \
-    guint old_length = 0;                                                           \
-    g_assert (self->configuring == NULL);                                           \
-    g_assert (self->cur_instr != NULL);                                             \
-    child = g_node_last_child (self->cur_instr);                                    \
-    if (child != NULL)                                                              \
-      {                                                                             \
-        CgPrivInstr *child_instr = child->data;                                     \
-        if (child_instr->type == type_enum)                                         \
-          instr = child_instr;                                                      \
-      }                                                                             \
-    if (instr == NULL)                                                              \
-      {                                                                             \
-        instr = CG_PRIV_CREATE (instr);                                             \
-        instr->type = type_enum;                                                    \
-        instr->member = g_ptr_array_new_with_free_func ((GDestroyNotify)(unref));   \
-        g_node_append_data (self->cur_instr, instr);                                \
-      }                                                                             \
-    old_length = instr->member->len;                                                \
-    g_ptr_array_set_size (instr->member, instr->member->len + n_objects);           \
-    for (guint i = 0; i < n_objects; i++)                                           \
-      g_ptr_array_index (instr->member, old_length + i)                             \
-          = ref (objects[i]);                                                       \
-  }
-
-DEFINE_APPEND_OP_INNER_FUNC (
-    append_vertices_op_inner, CgBuffer,
-    CG_PRIV_INSTR_VERTICES, vertices,
-    cg_buffer_ref, cg_buffer_unref)
-
-#undef DEFINE_APPEND_OP_INNER_FUNC
-
 static gboolean
 validate_append (CgPlan *self)
 {
@@ -1028,41 +997,81 @@ validate_append (CgPlan *self)
   return has_shader && has_write_mask && has_depth_func;
 }
 
-void
-cg_plan_append_vertices (
-    CgPlan *self,
-    CgBuffer *first_vertices,
-    ...)
+static void
+append_buffers (CgPlan *self,
+                guint instances,
+                CgBuffer **buffers,
+                guint n_buffers)
 {
-  CgBuffer *vertices[32] = { 0 };
-  guint n_vertices = 0;
+  CgPrivInstr *instr = NULL;
 
-  g_return_if_fail (self != NULL);
-  g_return_if_fail (self->configuring == NULL);
-  g_return_if_fail (self->cur_instr != NULL);
-  g_return_if_fail (first_vertices != NULL);
-  g_return_if_fail (validate_append (self));
+  g_assert (self->configuring == NULL);
+  g_assert (self->cur_instr != NULL);
 
-  CG_PRIV_GATHER_VA_ARGS_INTO (
-      first_vertices, vertices, G_N_ELEMENTS (vertices), n_vertices);
+  instr = CG_PRIV_CREATE (instr);
+  instr->type = CG_PRIV_INSTR_VERTICES;
 
-  append_vertices_op_inner (self, vertices, n_vertices);
+  if (n_buffers > 1)
+    {
+      CgBuffer **buffers_dup = NULL;
+
+      buffers_dup = g_malloc0_n (n_buffers, sizeof (*buffers_dup));
+      for (guint i = 0; i < n_buffers; i++)
+        buffers_dup[i] = cg_buffer_ref (buffers[i]);
+
+      instr->vertices.many_buffers = buffers_dup;
+    }
+  else
+    instr->vertices.one_buffer = cg_buffer_ref (*buffers);
+
+  instr->vertices.n_buffers = n_buffers;
+  instr->vertices.instances = instances;
+
+  g_node_append_data (self->cur_instr, instr);
 }
 
 void
-cg_plan_append_vertices_v (
+cg_plan_append (
     CgPlan *self,
-    CgBuffer **vertices,
-    guint n_vertices)
+    guint instances,
+    CgBuffer *first_buffer,
+    ...)
+{
+  CgBuffer *buffers[32] = { 0 };
+  guint n_buffers = 0;
+  GNode *child = NULL;
+  CgPrivInstr *instr = NULL;
+  guint old_length = 0;
+
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (self->configuring == NULL);
+  g_return_if_fail (self->cur_instr != NULL);
+  g_return_if_fail (instances > 0);
+  g_return_if_fail (first_buffer != NULL);
+  g_return_if_fail (validate_append (self));
+
+  CG_PRIV_GATHER_VA_ARGS_INTO (
+      first_buffer, buffers, G_N_ELEMENTS (buffers), n_buffers);
+
+  append_buffers (self, instances, buffers, n_buffers);
+}
+
+void
+cg_plan_append_v (
+    CgPlan *self,
+    guint instances,
+    CgBuffer **buffers,
+    guint n_buffers)
 {
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring == NULL);
   g_return_if_fail (self->cur_instr != NULL);
-  g_return_if_fail (vertices != NULL);
-  g_return_if_fail (n_vertices > 0);
+  g_return_if_fail (instances > 0);
+  g_return_if_fail (buffers != NULL);
+  g_return_if_fail (n_buffers > 0);
   g_return_if_fail (validate_append (self));
 
-  append_vertices_op_inner (self, vertices, n_vertices);
+  append_buffers (self, instances, buffers, n_buffers);
 }
 
 void
