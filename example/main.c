@@ -265,7 +265,7 @@ rotation_value_changed (GtkAdjustment *adjustment,
                         GtkGLArea *gl_area)
 {
   cube_rotation = gtk_adjustment_get_value (adjustment);
-  gtk_widget_queue_draw (GTK_WIDGET (gl_area));
+  gtk_gl_area_queue_render (gl_area);
 }
 
 static void
@@ -275,7 +275,7 @@ width_value_changed (GtkAdjustment *adjustment,
 {
   g_clear_pointer (&offsets, cg_buffer_unref);
   width = gtk_adjustment_get_value (adjustment);
-  gtk_widget_queue_draw (GTK_WIDGET (gl_area));
+  gtk_gl_area_queue_render (gl_area);
 }
 
 static void
@@ -285,7 +285,7 @@ height_value_changed (GtkAdjustment *adjustment,
 {
   g_clear_pointer (&offsets, cg_buffer_unref);
   height = gtk_adjustment_get_value (adjustment);
-  gtk_widget_queue_draw (GTK_WIDGET (gl_area));
+  gtk_gl_area_queue_render (gl_area);
 }
 
 static void
@@ -295,7 +295,7 @@ depth_value_changed (GtkAdjustment *adjustment,
 {
   g_clear_pointer (&offsets, cg_buffer_unref);
   depth = gtk_adjustment_get_value (adjustment);
-  gtk_widget_queue_draw (GTK_WIDGET (gl_area));
+  gtk_gl_area_queue_render (gl_area);
 }
 
 static void
