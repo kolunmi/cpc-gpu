@@ -593,6 +593,8 @@ void cg_shader_unref (gpointer self);
  * @param [in] self The GPU object.
  * @param [in] data The initial data to be stored.
  * @param [in] size The size of the initial data.
+ * @param [in] spec The data layout spec to hint.
+ * @param [in] spec_length The length of the layout spec buffer.
  *
  * @return The newly allocated object.
  *
@@ -603,7 +605,9 @@ CPC_GPU_AVAILABLE_IN_ALL
 CgBuffer *cg_buffer_new_for_data (
     CgGpu *self,
     gconstpointer data,
-    gsize size) G_GNUC_WARN_UNUSED_RESULT;
+    gsize size,
+    const CgDataSegment *spec,
+    guint spec_length) G_GNUC_WARN_UNUSED_RESULT;
 
 /*! @brief Like @a cg_buffer_new_for_data
  *         except transfer ownership of `data`.
@@ -611,6 +615,8 @@ CgBuffer *cg_buffer_new_for_data (
  * @param [in] self The GPU object.
  * @param [in] data The initial data to be stored.
  * @param [in] size The size of the initial data.
+ * @param [in] spec The data layout spec to hint.
+ * @param [in] spec_length The length of the layout spec buffer.
  *
  * @return The newly allocated object.
  *
@@ -621,7 +627,9 @@ CPC_GPU_AVAILABLE_IN_ALL
 CgBuffer *cg_buffer_new_for_data_take (
     CgGpu *self,
     gpointer data,
-    gsize size) G_GNUC_WARN_UNUSED_RESULT;
+    gsize size,
+    const CgDataSegment *spec,
+    guint spec_length) G_GNUC_WARN_UNUSED_RESULT;
 
 /*! @brief Create a strong reference to
  *         a @a CgBuffer object.
@@ -646,22 +654,6 @@ CgBuffer *cg_buffer_ref (CgBuffer *self);
  */
 CPC_GPU_AVAILABLE_IN_ALL
 void cg_buffer_unref (gpointer self);
-
-/*! @brief Hint this buffer's data layout using
- *         a buffer of @a CgGpuDataSegment .
- *
- * @param [in] self The object.
- * @param [in] segments The data layout spec.
- * @param [in] n_segments The length of the layout.
- *
- * @memberof CgBuffer
- *
- */
-CPC_GPU_AVAILABLE_IN_ALL
-void cg_buffer_hint_layout (
-    CgBuffer *self,
-    const CgDataSegment *segments,
-    guint n_segments);
 
 /*! @brief Create a new @a CgTexture
  *         with initial duplicated data.

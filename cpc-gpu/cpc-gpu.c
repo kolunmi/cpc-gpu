@@ -313,8 +313,8 @@ void
 cg_priv_buffer_finish (CgBuffer *self)
 {
   g_clear_pointer (&self->init.data, g_free);
-  clear_data_layout (self->layout, self->layout_len);
-  g_clear_pointer (&self->layout, g_free);
+  clear_data_layout (self->spec, self->spec_length);
+  g_clear_pointer (&self->spec, g_free);
   g_clear_pointer (&self->gpu, cg_gpu_unref);
 }
 
@@ -402,21 +402,49 @@ cg_shader_new_for_code (
   return g_steal_pointer (&shader);
 }
 
+static void
+hint_buffer_layout (
+    CgBuffer *self,
+    const CgDataSegment *spec,
+    guint spec_length)
+{
+  g_autofree CgDataSegment *segments_dup = NULL;
+
+  segments_dup = g_malloc0_n (spec_length, sizeof (*spec));
+  for (guint i = 0; i < spec_length; i++)
+    {
+      segments_dup[i].name = g_strdup (spec[i].name);
+      segments_dup[i].num = spec[i].num;
+      segments_dup[i].type = spec[i].type;
+      segments_dup[i].instance_rate = spec[i].instance_rate;
+    }
+
+  clear_data_layout (self->spec, self->spec_length);
+  CG_PRIV_REPLACE_POINTER (&self->spec, g_steal_pointer (&segments_dup), g_free);
+  self->spec_length = spec_length;
+}
+
 CgBuffer *
 cg_buffer_new_for_data (
     CgGpu *self,
     gconstpointer data,
-    gsize size)
+    gsize size,
+    const CgDataSegment *spec,
+    guint spec_length)
 {
   g_autoptr (CgBuffer) buffer = NULL;
 
   g_return_val_if_fail (self != NULL, NULL);
   g_return_val_if_fail (data != NULL, NULL);
   g_return_val_if_fail (size > 0, NULL);
+  g_return_val_if_fail (spec != NULL || spec_length == 0, NULL);
 
   buffer = buffer_new (self);
   buffer->init.data = g_memdup2 (data, size);
   buffer->init.size = size;
+
+  if (spec != NULL)
+    hint_buffer_layout (buffer, spec, spec_length);
 
   return g_steal_pointer (&buffer);
 }
@@ -425,45 +453,25 @@ CgBuffer *
 cg_buffer_new_for_data_take (
     CgGpu *self,
     gpointer data,
-    gsize size)
+    gsize size,
+    const CgDataSegment *spec,
+    guint spec_length)
 {
   g_autoptr (CgBuffer) buffer = NULL;
 
   g_return_val_if_fail (self != NULL, NULL);
   g_return_val_if_fail (data != NULL, NULL);
   g_return_val_if_fail (size > 0, NULL);
+  g_return_val_if_fail (spec != NULL || spec_length == 0, NULL);
 
   buffer = buffer_new (self);
   buffer->init.data = data;
   buffer->init.size = size;
 
+  if (spec != NULL)
+    hint_buffer_layout (buffer, spec, spec_length);
+
   return g_steal_pointer (&buffer);
-}
-
-void
-cg_buffer_hint_layout (
-    CgBuffer *self,
-    const CgDataSegment *segments,
-    guint n_segments)
-{
-  g_autofree CgDataSegment *segments_dup = NULL;
-
-  g_return_if_fail (self != NULL);
-  g_return_if_fail (segments != NULL);
-  g_return_if_fail (n_segments > 0);
-
-  segments_dup = g_malloc0_n (n_segments, sizeof (*segments));
-  for (guint i = 0; i < n_segments; i++)
-    {
-      segments_dup[i].name = g_strdup (segments[i].name);
-      segments_dup[i].num = segments[i].num;
-      segments_dup[i].type = segments[i].type;
-      segments_dup[i].instance_rate = segments[i].instance_rate;
-    }
-
-  clear_data_layout (self->layout, self->layout_len);
-  CG_PRIV_REPLACE_POINTER (&self->layout, g_steal_pointer (&segments_dup), g_free);
-  self->layout_len = n_segments;
 }
 
 CgTexture *

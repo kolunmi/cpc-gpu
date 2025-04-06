@@ -199,8 +199,8 @@ struct _CgBuffer
 {
   CgGpu *gpu;
 
-  CgDataSegment *layout;
-  guint layout_len;
+  CgDataSegment *spec;
+  guint spec_length;
 
   struct
   {

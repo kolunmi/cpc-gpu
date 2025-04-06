@@ -857,6 +857,14 @@ ensure_vertices (CgBuffer *self,
     return TRUE;
   g_assert (gl_buffer->vao_id == 0 && gl_buffer->vbo_id == 0);
 
+  if (self->spec == NULL)
+    {
+      CGL_CRITICAL_USER_ERROR (
+          "Buffer needs a layout specification "
+          "to be used as an attribute");
+      return FALSE;
+    }
+
   glGenVertexArrays (1, &vao_id);
   if (vao_id == 0)
     {
@@ -1748,44 +1756,42 @@ draw_vertices (CgBuffer **buffers,
       gl_buffer = (CglBuffer *)buffers[i];
       glBindBuffer (GL_ARRAY_BUFFER, gl_buffer->vbo_id);
 
-      if (buffers[i]->layout != NULL)
+      if (buffers[i]->spec != NULL)
         {
           gsize stride = 0;
           gsize offset = 0;
 
-          for (guint j = 0; j < buffers[i]->layout_len; j++)
-            stride += buffers[i]->layout[j].num
-                      * (buffers[i]->layout[j].type == CG_TYPE_FLOAT
+          for (guint j = 0; j < buffers[i]->spec_length; j++)
+            stride += buffers[i]->spec[j].num
+                      * (buffers[i]->spec[j].type == CG_TYPE_FLOAT
                              ? sizeof (float)
                              : sizeof (guchar));
 
-          for (guint j = 0; j < buffers[i]->layout_len; j++)
+          for (guint j = 0; j < buffers[i]->spec_length; j++)
             {
               ShaderLocation *attribute = NULL;
 
               attribute = g_hash_table_lookup (
                   gl_shader->attribute_assoc,
-                  buffers[i]->layout[j].name);
+                  buffers[i]->spec[j].name);
+              g_assert (attribute != NULL);
 
-              if (attribute != NULL)
-                {
-                  glVertexAttribPointer (
-                      attribute->location,
-                      buffers[i]->layout[j].num,
-                      buffers[i]->layout[j].type == CG_TYPE_FLOAT
-                          ? GL_FLOAT
-                          : GL_UNSIGNED_BYTE,
-                      GL_FALSE,
-                      stride,
-                      GSIZE_TO_POINTER (offset));
-                  glVertexAttribDivisor (
-                      attribute->location,
-                      buffers[i]->layout[j].instance_rate);
-                  glEnableVertexAttribArray (attribute->location);
-                }
+              glVertexAttribPointer (
+                  attribute->location,
+                  buffers[i]->spec[j].num,
+                  buffers[i]->spec[j].type == CG_TYPE_FLOAT
+                      ? GL_FLOAT
+                      : GL_UNSIGNED_BYTE,
+                  GL_FALSE,
+                  stride,
+                  GSIZE_TO_POINTER (offset));
+              glVertexAttribDivisor (
+                  attribute->location,
+                  buffers[i]->spec[j].instance_rate);
+              glEnableVertexAttribArray (attribute->location);
 
-              offset += buffers[i]->layout[j].num
-                        * (buffers[i]->layout[j].type == CG_TYPE_FLOAT
+              offset += buffers[i]->spec[j].num
+                        * (buffers[i]->spec[j].type == CG_TYPE_FLOAT
                                ? sizeof (float)
                                : sizeof (guchar));
             }
@@ -1808,18 +1814,18 @@ draw_vertices (CgBuffer **buffers,
       gl_buffer = (CglBuffer *)buffers[i];
       glBindBuffer (GL_ARRAY_BUFFER, gl_buffer->vbo_id);
 
-      if (buffers[i]->layout != NULL)
+      if (buffers[i]->spec != NULL)
         {
-          for (guint j = 0; j < buffers[i]->layout_len; j++)
+          for (guint j = 0; j < buffers[i]->spec_length; j++)
             {
               ShaderLocation *attribute = NULL;
 
               attribute = g_hash_table_lookup (
                   gl_shader->attribute_assoc,
-                  buffers[i]->layout[j].name);
+                  buffers[i]->spec[j].name);
+              g_assert (attribute != NULL);
 
-              if (attribute != NULL)
-                glDisableVertexAttribArray (attribute->location);
+              glDisableVertexAttribArray (attribute->location);
             }
         }
     }

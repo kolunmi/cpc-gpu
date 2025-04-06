@@ -184,8 +184,9 @@ render (GtkGLArea *area,
             }
         }
 
-      offsets = cg_buffer_new_for_data_take (gpu, g_steal_pointer (&offsets_buf), size);
-      cg_buffer_hint_layout (offsets, offset_layout, G_N_ELEMENTS (offset_layout));
+      offsets = cg_buffer_new_for_data_take (
+          gpu, g_steal_pointer (&offsets_buf), size,
+          offset_layout, G_N_ELEMENTS (offset_layout));
     }
 
   plan = cg_plan_new (gpu);
@@ -243,8 +244,9 @@ realize (GtkGLArea *area,
   shader = cg_shader_new_for_code (
       gpu, VERTEX_SHADER, FRAGMENT_SHADER);
 
-  cube_vertices = cg_buffer_new_for_data (gpu, cube, sizeof (cube));
-  cg_buffer_hint_layout (cube_vertices, cube_layout, G_N_ELEMENTS (cube_layout));
+  cube_vertices = cg_buffer_new_for_data (
+      gpu, cube, sizeof (cube),
+      cube_layout, G_N_ELEMENTS (cube_layout));
 
   icon = cg_texture_new_for_data_take (
       gpu, g_steal_pointer (&icon_data),
