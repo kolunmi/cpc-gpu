@@ -195,6 +195,7 @@ cg_gpu_get_info (CgGpu *self,
 gboolean
 cg_gpu_steal_this_thread (CgGpu *self)
 {
+  CgGpu *owner = NULL;
   gboolean was_set = FALSE;
 
   g_return_val_if_fail (self != NULL, FALSE);
@@ -203,7 +204,8 @@ cg_gpu_steal_this_thread (CgGpu *self)
     return TRUE;
 
   CG_PRIV_ENTER (self);
-  if (self != self->impl->get_gpu_for_this_thread ())
+  owner = self->impl->get_gpu_for_this_thread ();
+  if (self != owner)
     {
       self->impl->set_gpu_for_this_thread (self);
       was_set = TRUE;
@@ -211,6 +213,23 @@ cg_gpu_steal_this_thread (CgGpu *self)
   CG_PRIV_LEAVE (self);
 
   return was_set;
+}
+
+void
+cg_gpu_release_this_thread (CgGpu *self)
+{
+  CgGpu *owner = NULL;
+
+  g_return_if_fail (self != NULL);
+
+  if (!CG_PRIV_DEAL_WITH_THREADS (self))
+    return;
+
+  CG_PRIV_ENTER (self);
+  owner = self->impl->get_gpu_for_this_thread ();
+  if (self == owner)
+    self->impl->set_gpu_for_this_thread (NULL);
+  CG_PRIV_LEAVE (self);
 }
 
 gboolean

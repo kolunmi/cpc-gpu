@@ -519,11 +519,34 @@ char *cg_gpu_get_info (
  * If you would like to disable thread checking, pass
  * @a CG_INIT_FLAG_NO_THREAD_SAFETY to @a cg_gpu_new
  *
+ * If this function succeeds, a ref is taken on the
+ * gpu object, and you must later call
+ * @a cg_gpu_release_this_thread to disassociate
+ * the gpu from the thread and release the ref.
+ *
+ * See @a cg_gpu_release_this_thread
+ *
  * @memberof CgGpu
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
 gboolean cg_gpu_steal_this_thread (CgGpu *self);
+
+/*! @brief For applicable backends, command this
+ *         GPU to release the current thread.
+ *
+ * @param [in] self The GPU object.
+ *
+ * For backends for which this function does not
+ * make sense, this function does nothing.
+ *
+ * See @a cg_gpu_steal_this_thread
+ *
+ * @memberof CgGpu
+ *
+ */
+CPC_GPU_AVAILABLE_IN_ALL
+void cg_gpu_release_this_thread (CgGpu *self);
 
 /*! @brief Ensure the GPU context is up to date.
  *

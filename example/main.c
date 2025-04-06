@@ -162,6 +162,8 @@ render (GtkGLArea *area,
   graphene_matrix_transpose (&tmp, &normal);
   graphene_matrix_to_float (&normal, normal_arr);
 
+  cg_gpu_steal_this_thread (gpu);
+
   if (offsets == NULL)
     {
       gsize size = 0;
@@ -262,6 +264,19 @@ done:
 }
 
 static void
+unrealize (GtkGLArea *area,
+           gpointer user_data)
+{
+  g_clear_pointer (&icon, cg_texture_unref);
+  g_clear_pointer (&cube_vertices, cg_buffer_unref);
+  g_clear_pointer (&offsets, cg_buffer_unref);
+  g_clear_pointer (&shader, cg_shader_unref);
+
+  cg_gpu_release_this_thread (gpu);
+  g_clear_pointer (&gpu, cg_gpu_unref);
+}
+
+static void
 rotation_value_changed (GtkAdjustment *adjustment,
                         GParamSpec *pspec,
                         GtkGLArea *gl_area)
@@ -341,6 +356,7 @@ on_activate (GtkApplication *app)
   gtk_gl_area_set_allowed_apis (GTK_GL_AREA (gl_area), GDK_GL_API_GL);
   gtk_gl_area_set_has_depth_buffer (GTK_GL_AREA (gl_area), TRUE);
   g_signal_connect (gl_area, "realize", G_CALLBACK (realize), NULL);
+  g_signal_connect (gl_area, "unrealize", G_CALLBACK (unrealize), NULL);
   g_signal_connect (gl_area, "render", G_CALLBACK (render), NULL);
   gtk_box_append (GTK_BOX (box), gl_area);
 

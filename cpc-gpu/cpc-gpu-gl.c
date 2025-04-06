@@ -208,7 +208,8 @@ get_gpu_for_this_thread (void)
 static void
 set_gpu_for_this_thread (CgGpu *gpu)
 {
-  g_private_replace (&current_context, cg_gpu_ref (gpu));
+  g_private_replace (&current_context,
+                     gpu != NULL ? cg_gpu_ref (gpu) : NULL);
 }
 
 static void GLAPIENTRY
@@ -394,6 +395,9 @@ clear_gpu (CgGpu *self)
 {
   CglGpu *gl_gpu = (CglGpu *)self;
 
+  /* TODO could be the wrong thread? */
+  glDeleteFramebuffers (gl_gpu->framebuffer_stack->len,
+                        (GLuint *)gl_gpu->framebuffer_stack->data);
   g_clear_pointer (&gl_gpu->framebuffer_stack, g_array_unref);
   g_clear_pointer (&gl_gpu->destroyed_objects, g_array_unref);
 }
