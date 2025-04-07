@@ -1531,8 +1531,13 @@ setup_or_teardown (GLuint framebuffer,
                 pass_instr->pass.dest[2],
                 pass_instr->pass.dest[3]);
 
-  glDepthMask (GL_TRUE);
-  glColorMask (GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+  glColorMask (
+      pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_RED ? GL_TRUE : GL_FALSE,
+      pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_GREEN ? GL_TRUE : GL_FALSE,
+      pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_BLUE ? GL_TRUE : GL_FALSE,
+      pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_ALPHA ? GL_TRUE : GL_FALSE);
+  glDepthMask (
+      pass_instr->pass.write_mask & CG_WRITE_MASK_DEPTH ? GL_TRUE : GL_FALSE);
 
   for (guint i = 0, colors = 0, depths = 0;
        i < pass_instr->pass.targets->len;
