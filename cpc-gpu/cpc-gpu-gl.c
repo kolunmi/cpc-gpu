@@ -1761,54 +1761,52 @@ draw_vertices (CgBuffer **buffers,
   for (guint i = 0; i < n_buffers; i++)
     {
       CglBuffer *gl_buffer = NULL;
+      gsize stride = 0;
+      gsize offset = 0;
+
+      g_assert (buffers[i]->spec != NULL);
 
       gl_buffer = (CglBuffer *)buffers[i];
       glBindBuffer (GL_ARRAY_BUFFER, gl_buffer->vbo_id);
 
-      if (buffers[i]->spec != NULL)
+      for (guint j = 0; j < buffers[i]->spec_length; j++)
+        stride += buffers[i]->spec[j].num
+                  * (buffers[i]->spec[j].type == CG_TYPE_FLOAT
+                         ? sizeof (float)
+                         : sizeof (guchar));
+
+      for (guint j = 0; j < buffers[i]->spec_length; j++)
         {
-          gsize stride = 0;
-          gsize offset = 0;
+          ShaderLocation *attribute = NULL;
 
-          for (guint j = 0; j < buffers[i]->spec_length; j++)
-            stride += buffers[i]->spec[j].num
-                      * (buffers[i]->spec[j].type == CG_TYPE_FLOAT
-                             ? sizeof (float)
-                             : sizeof (guchar));
+          attribute = g_hash_table_lookup (
+              gl_shader->attribute_assoc,
+              buffers[i]->spec[j].name);
+          g_assert (attribute != NULL);
 
-          for (guint j = 0; j < buffers[i]->spec_length; j++)
-            {
-              ShaderLocation *attribute = NULL;
+          glVertexAttribPointer (
+              attribute->location,
+              buffers[i]->spec[j].num,
+              buffers[i]->spec[j].type == CG_TYPE_FLOAT
+                  ? GL_FLOAT
+                  : GL_UNSIGNED_BYTE,
+              GL_FALSE,
+              stride,
+              GSIZE_TO_POINTER (offset));
+          glVertexAttribDivisor (
+              attribute->location,
+              buffers[i]->spec[j].instance_rate);
+          glEnableVertexAttribArray (attribute->location);
 
-              attribute = g_hash_table_lookup (
-                  gl_shader->attribute_assoc,
-                  buffers[i]->spec[j].name);
-              g_assert (attribute != NULL);
-
-              glVertexAttribPointer (
-                  attribute->location,
-                  buffers[i]->spec[j].num,
-                  buffers[i]->spec[j].type == CG_TYPE_FLOAT
-                      ? GL_FLOAT
-                      : GL_UNSIGNED_BYTE,
-                  GL_FALSE,
-                  stride,
-                  GSIZE_TO_POINTER (offset));
-              glVertexAttribDivisor (
-                  attribute->location,
-                  buffers[i]->spec[j].instance_rate);
-              glEnableVertexAttribArray (attribute->location);
-
-              offset += buffers[i]->spec[j].num
-                        * (buffers[i]->spec[j].type == CG_TYPE_FLOAT
-                               ? sizeof (float)
-                               : sizeof (guchar));
-            }
-
-          gl_buffer->length = buffers[i]->init.size / stride;
-          if (gl_buffer->length > max_length)
-            max_length = gl_buffer->length;
+          offset += buffers[i]->spec[j].num
+                    * (buffers[i]->spec[j].type == CG_TYPE_FLOAT
+                           ? sizeof (float)
+                           : sizeof (guchar));
         }
+
+      gl_buffer->length = buffers[i]->init.size / stride;
+      if (gl_buffer->length > max_length)
+        max_length = gl_buffer->length;
     }
 
   if (instances > 1)
@@ -1820,22 +1818,21 @@ draw_vertices (CgBuffer **buffers,
     {
       CglBuffer *gl_buffer = NULL;
 
+      g_assert (buffers[i]->spec != NULL);
+
       gl_buffer = (CglBuffer *)buffers[i];
       glBindBuffer (GL_ARRAY_BUFFER, gl_buffer->vbo_id);
 
-      if (buffers[i]->spec != NULL)
+      for (guint j = 0; j < buffers[i]->spec_length; j++)
         {
-          for (guint j = 0; j < buffers[i]->spec_length; j++)
-            {
-              ShaderLocation *attribute = NULL;
+          ShaderLocation *attribute = NULL;
 
-              attribute = g_hash_table_lookup (
-                  gl_shader->attribute_assoc,
-                  buffers[i]->spec[j].name);
-              g_assert (attribute != NULL);
+          attribute = g_hash_table_lookup (
+              gl_shader->attribute_assoc,
+              buffers[i]->spec[j].name);
+          g_assert (attribute != NULL);
 
-              glDisableVertexAttribArray (attribute->location);
-            }
+          glDisableVertexAttribArray (attribute->location);
         }
     }
 
