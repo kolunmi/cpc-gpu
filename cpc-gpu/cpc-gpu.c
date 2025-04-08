@@ -252,9 +252,6 @@ cg_gpu_flush (CgGpu *self, GError **error)
 static void
 plan_init (CgPlan *self)
 {
-  self->root_instr = NULL;
-  self->cur_instr = NULL;
-  self->configuring = NULL;
 }
 
 static gboolean
@@ -263,32 +260,40 @@ destroy_instr_node_data (GNode *node,
 {
   CgPrivInstr *instr = node->data;
 
-  switch (instr->type)
+  if (instr != NULL)
     {
-    case CG_PRIV_INSTR_PASS:
-      g_clear_pointer (&instr->pass.shader, cg_shader_unref);
-      g_clear_pointer (&instr->pass.targets, g_ptr_array_unref);
-      g_clear_pointer (&instr->pass.attributes, g_hash_table_unref);
-      g_clear_pointer (&instr->pass.uniforms.hash, g_hash_table_unref);
-      g_clear_pointer (&instr->pass.uniforms.order, g_ptr_array_unref);
-      break;
-    case CG_PRIV_INSTR_VERTICES:
-      if (instr->vertices.n_buffers > 1)
+      switch (instr->type)
         {
-          for (guint i = 0; i < instr->vertices.n_buffers; i++)
-            cg_buffer_unref (instr->vertices.many_buffers[i]);
-          g_free (instr->vertices.many_buffers);
+        case CG_PRIV_INSTR_PASS:
+          g_clear_pointer (&instr->pass.shader, cg_shader_unref);
+          g_clear_pointer (&instr->pass.targets, g_ptr_array_unref);
+          g_clear_pointer (&instr->pass.attributes, g_hash_table_unref);
+          g_clear_pointer (&instr->pass.uniforms.hash, g_hash_table_unref);
+          g_clear_pointer (&instr->pass.uniforms.order, g_ptr_array_unref);
+          break;
+        case CG_PRIV_INSTR_VERTICES:
+          if (instr->vertices.n_buffers > 1)
+            {
+              for (guint i = 0; i < instr->vertices.n_buffers; i++)
+                cg_buffer_unref (instr->vertices.many_buffers[i]);
+              g_free (instr->vertices.many_buffers);
+            }
+          else
+            g_clear_pointer (&instr->vertices.one_buffer, cg_buffer_unref);
+          break;
+        case CG_PRIV_INSTR_BLIT:
+          g_clear_pointer (&instr->blit.src, cg_texture_unref);
+          break;
+        default:
+          g_assert_not_reached ();
         }
-      else
-        g_clear_pointer (&instr->vertices.one_buffer, cg_buffer_unref);
-      break;
+
+      if (instr->user_data != NULL
+          && instr->destroy_user_data != NULL)
+        instr->destroy_user_data (instr->user_data);
+
+      g_free (instr);
     }
-
-  if (instr->user_data != NULL
-      && instr->destroy_user_data != NULL)
-    instr->destroy_user_data (instr->user_data);
-
-  g_free (instr);
 
   /* Keep going */
   return FALSE;
@@ -656,7 +661,7 @@ cg_plan_begin_config (CgPlan *self)
   g_return_if_fail (self->configuring == NULL);
 
   instr = CG_PRIV_CREATE (instr);
-  instr->depth = g_node_max_height (self->root_instr);
+  instr->depth = g_node_depth (self->cur_instr) + 1;
   instr->type = CG_PRIV_INSTR_PASS;
   instr->pass.targets = g_ptr_array_new_with_free_func (cg_texture_unref);
   instr->pass.uniforms.hash = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, cg_priv_destroy_value);
@@ -1099,6 +1104,25 @@ cg_plan_append_v (
   g_return_if_fail (validate_append (self));
 
   append_buffers (self, instances, buffers, n_buffers);
+}
+
+void
+cg_plan_blit (CgPlan *self,
+              CgTexture *src)
+{
+  CgPrivInstr *instr = NULL;
+
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (self->configuring == NULL);
+  g_return_if_fail (self->cur_instr != NULL);
+  g_return_if_fail (src != NULL);
+  g_return_if_fail (validate_append (self));
+
+  instr = CG_PRIV_CREATE (instr);
+  instr->type = CG_PRIV_INSTR_BLIT;
+  instr->blit.src = cg_texture_ref (src);
+
+  g_node_append_data (self->cur_instr, instr);
 }
 
 void

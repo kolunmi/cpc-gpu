@@ -1093,6 +1093,18 @@ void cg_plan_append_v (
     CgBuffer **buffers,
     guint n_buffers);
 
+/*! @brief Copy a texture to the output.
+ *
+ * @param [in] self The plan object.
+ * @param [in] src The source texture.
+ *
+ * @memberof CgPlan
+ *
+ */
+CPC_GPU_AVAILABLE_IN_ALL
+void cg_plan_blit (CgPlan *self,
+                   CgTexture *src);
+
 /*! @brief Terminate the current child group
  *         and in turn restore the state of the
  *         plan object to before the group was

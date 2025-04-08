@@ -130,6 +130,7 @@ enum
 {
   CG_PRIV_INSTR_PASS = 0,
   CG_PRIV_INSTR_VERTICES,
+  CG_PRIV_INSTR_BLIT,
 };
 
 typedef struct
@@ -164,6 +165,11 @@ typedef struct
       };
       guint instances;
     } vertices;
+
+    struct
+    {
+      CgTexture *src;
+    } blit;
   };
 
   gpointer user_data;

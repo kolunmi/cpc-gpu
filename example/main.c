@@ -113,6 +113,8 @@ static gpointer icon_data = NULL;
 
 static CgGpu *gpu = NULL;
 static CgShader *shader = NULL;
+static CgTexture *tmp_target = NULL;
+static CgTexture *tmp_depth = NULL;
 static CgBuffer *cube_vertices = NULL;
 static CgBuffer *offsets = NULL;
 static CgTexture *icon = NULL;
@@ -130,6 +132,8 @@ render (GtkGLArea *area,
   g_autoptr (GError) local_error = NULL;
   int screen_width = 0;
   int screen_height = 0;
+  static int last_screen_width = 0;
+  static int last_screen_height = 0;
   graphene_matrix_t projection = { 0 };
   graphene_vec3_t eye = { 0 };
   graphene_matrix_t view = { 0 };
@@ -164,6 +168,23 @@ render (GtkGLArea *area,
 
   cg_gpu_steal_this_thread (gpu);
 
+  if (tmp_target == NULL
+      || last_screen_width != screen_width
+      || last_screen_height != screen_height)
+    {
+      g_clear_pointer (&tmp_target, cg_texture_unref);
+      g_clear_pointer (&tmp_depth, cg_texture_unref);
+
+      tmp_target = cg_texture_new_for_data (
+          gpu, NULL, 0, screen_width, screen_height,
+          CG_FORMAT_RGBA8, 1, 4);
+      tmp_depth = cg_texture_new_depth (
+          gpu, screen_width, screen_height, 4);
+
+      last_screen_width = screen_width;
+      last_screen_height = screen_height;
+    }
+
   if (offsets == NULL)
     {
       gsize size = 0;
@@ -192,18 +213,32 @@ render (GtkGLArea *area,
     }
 
   plan = cg_plan_new (gpu);
+
   cg_plan_push_state (
       plan,
       CG_STATE_DEST, CG_RECT (0, 0, screen_width, screen_height),
       CG_STATE_DEPTH_FUNC, CG_INT (CG_TEST_LEQUAL),
       CG_STATE_WRITE_MASK, CG_UINT (CG_WRITE_MASK_ALL),
       CG_STATE_SHADER, CG_SHADER (shader),
+      NULL);
+
+  cg_plan_push_state (
+      plan,
+      CG_STATE_DEST, CG_RECT (0, 0, screen_width, screen_height),
+      CG_STATE_DEPTH_FUNC, CG_INT (CG_TEST_LEQUAL),
+      CG_STATE_WRITE_MASK, CG_UINT (CG_WRITE_MASK_ALL),
+      CG_STATE_SHADER, CG_SHADER (shader),
+      CG_STATE_TARGET, CG_TEXTURE (tmp_target),
+      CG_STATE_TARGET, CG_TEXTURE (tmp_depth),
       CG_STATE_UNIFORM, CG_KEYVAL ("mvp", CG_MAT4 (mvp_arr)),
       CG_STATE_UNIFORM, CG_KEYVAL ("normal", CG_MAT4 (normal_arr)),
       CG_STATE_UNIFORM, CG_KEYVAL ("texture0", CG_TEXTURE (icon)),
       CG_STATE_UNIFORM, CG_KEYVAL ("colDiffuse", CG_VEC4 (1.0, 1.0, 1.0, 1.0)),
       NULL);
   cg_plan_append (plan, width * height * depth, cube_vertices, offsets, NULL);
+  cg_plan_pop (plan);
+
+  cg_plan_blit (plan, tmp_target);
   cg_plan_pop (plan);
 
   commands = cg_plan_unref_to_commands (g_steal_pointer (&plan), &local_error);
@@ -270,6 +305,8 @@ unrealize (GtkGLArea *area,
   g_clear_pointer (&icon, cg_texture_unref);
   g_clear_pointer (&cube_vertices, cg_buffer_unref);
   g_clear_pointer (&offsets, cg_buffer_unref);
+  g_clear_pointer (&tmp_target, cg_texture_unref);
+  g_clear_pointer (&tmp_depth, cg_texture_unref);
   g_clear_pointer (&shader, cg_shader_unref);
 
   cg_gpu_release_this_thread (gpu);

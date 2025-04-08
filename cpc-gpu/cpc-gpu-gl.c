@@ -1378,27 +1378,29 @@ ensure_instr_node (GNode *node,
       }
       break;
     case CG_PRIV_INSTR_VERTICES:
-      {
-        if (instr->vertices.n_buffers > 1)
-          {
-            for (guint i = 0; i < instr->vertices.n_buffers; i++)
-              {
-                if (!ensure_vertices (instr->vertices.many_buffers[i], data->error))
-                  {
-                    data->failure = TRUE;
-                    return TRUE;
-                  }
-              }
-          }
-        else
-          {
-            if (!ensure_vertices (instr->vertices.one_buffer, data->error))
-              {
-                data->failure = TRUE;
-                return TRUE;
-              }
-          }
-      }
+      if (instr->vertices.n_buffers > 1)
+        {
+          for (guint i = 0; i < instr->vertices.n_buffers; i++)
+            {
+              if (!ensure_vertices (instr->vertices.many_buffers[i], data->error))
+                {
+                  data->failure = TRUE;
+                  return TRUE;
+                }
+            }
+        }
+      else if (!ensure_vertices (instr->vertices.one_buffer, data->error))
+        {
+          data->failure = TRUE;
+          return TRUE;
+        }
+      break;
+    case CG_PRIV_INSTR_BLIT:
+      if (!ensure_texture (instr->blit.src, data->error))
+        {
+          data->failure = TRUE;
+          return TRUE;
+        }
       break;
     default:
       g_assert_not_reached ();
@@ -1435,8 +1437,8 @@ plan_unref_to_commands (
           gl_commands->instrs, G_PRE_ORDER, G_TRAVERSE_ALL,
           -1, (GNodeTraverseFunc)ensure_instr_node, &data);
 
-      /* Plus one so we have enough for blits */
-      depth = g_node_max_height (gl_commands->instrs) + 1;
+      /* Plus two so we have enough for blits */
+      depth = g_node_max_height (gl_commands->instrs) + 2;
 
       if (depth > gl_gpu->framebuffer_stack->len)
         {
@@ -1513,7 +1515,8 @@ static const GLenum gl_texture_slot_enums[] = {
 
 static gboolean
 setup_or_teardown (GLuint framebuffer,
-                   GLuint blit_framebuffer,
+                   GLuint blit_read_fb,
+                   GLuint blit_draw_fb,
                    CgPrivInstr *instr,
                    CgPrivInstr *pass_instr,
                    ProcessData *data,
@@ -1599,6 +1602,9 @@ setup_or_teardown (GLuint framebuffer,
           data->failure = TRUE;
           return FALSE;
         }
+
+      glClearColor (0, 0, 0, 0);
+      glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
 
   for (guint i = 0, textures = 0;
@@ -1629,50 +1635,82 @@ setup_or_teardown (GLuint framebuffer,
 
             g_assert (textures < G_N_ELEMENTS (gl_texture_slot_enums));
 
-            /* If the texture uses msaa, blit to a temp texture */
             if (value->texture->init.msaa > 0)
               {
-                GLenum status = 0;
+                CglTexture *read_texture = NULL;
 
+                read_texture = gl_texture;
                 gl_texture = (CglTexture *)gl_texture->non_msaa;
 
-                glBindFramebuffer (GL_FRAMEBUFFER, blit_framebuffer);
-                glFramebufferTexture2D (
-                    GL_FRAMEBUFFER,
-                    value->texture->init.format == CG_PRIV_FORMAT_DEPTH
-                        ? GL_DEPTH_ATTACHMENT
-                        : GL_COLOR_ATTACHMENT0,
-                    GL_TEXTURE_2D, gl_texture->id, 0);
-
-                status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
-                if (status != GL_FRAMEBUFFER_COMPLETE)
+                /* If the texture uses msaa, blit to a temp texture */
+                if (!teardown)
                   {
-                    CGL_SET_ERROR (
-                        data->error,
-                        CG_ERROR_FAILED_TARGET_CREATION,
-                        "Failed to complete framebuffer");
-                    return FALSE;
+                    for (int j = 0; j < 2; j++)
+                      {
+                        GLenum status = 0;
+
+                        glBindFramebuffer (
+                            GL_FRAMEBUFFER,
+                            j == 0
+                                ? blit_read_fb
+                                : blit_draw_fb);
+
+                        glFramebufferTexture2D (
+                            GL_FRAMEBUFFER,
+                            value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                ? GL_DEPTH_ATTACHMENT
+                                : GL_COLOR_ATTACHMENT0,
+                            (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
+                                ? GL_TEXTURE_2D_MULTISAMPLE
+                                : GL_TEXTURE_2D,
+                            j == 0
+                                ? read_texture->id
+                                : gl_texture->id,
+                            0);
+
+                        status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
+                        if (status != GL_FRAMEBUFFER_COMPLETE)
+                          {
+                            CGL_SET_ERROR (
+                                data->error,
+                                CG_ERROR_FAILED_TARGET_CREATION,
+                                "Failed to complete framebuffer");
+                            return FALSE;
+                          }
+                      }
+
+                    glBindFramebuffer (GL_READ_FRAMEBUFFER, blit_read_fb);
+                    glBindFramebuffer (GL_DRAW_FRAMEBUFFER, blit_draw_fb);
+                    glBlitFramebuffer (
+                        0, 0, value->texture->init.width, value->texture->init.height,
+                        0, 0, value->texture->init.width, value->texture->init.height,
+                        value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                            ? GL_DEPTH_BUFFER_BIT
+                            : GL_COLOR_BUFFER_BIT,
+                        GL_NEAREST);
+
+                    for (int j = 0; j < 2; j++)
+                      {
+                        glBindFramebuffer (
+                            GL_FRAMEBUFFER,
+                            j == 0
+                                ? blit_read_fb
+                                : blit_draw_fb);
+
+                        glFramebufferTexture2D (
+                            GL_FRAMEBUFFER,
+                            value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                ? GL_DEPTH_ATTACHMENT
+                                : GL_COLOR_ATTACHMENT0,
+                            (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
+                                ? GL_TEXTURE_2D_MULTISAMPLE
+                                : GL_TEXTURE_2D,
+                            0, 0);
+                      }
+
+                    glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
+                    glUseProgram (gl_shader->program);
                   }
-
-                glBindFramebuffer (GL_DRAW_FRAMEBUFFER, blit_framebuffer);
-                glBindFramebuffer (GL_READ_FRAMEBUFFER, framebuffer);
-                glBlitFramebuffer (
-                    0, 0, value->texture->init.width, value->texture->init.height,
-                    0, 0, value->texture->init.width, value->texture->init.height,
-                    value->texture->init.format == CG_PRIV_FORMAT_DEPTH
-                        ? GL_DEPTH_BUFFER_BIT
-                        : GL_COLOR_BUFFER_BIT,
-                    GL_NEAREST);
-
-                glFramebufferTexture2D (
-                    GL_FRAMEBUFFER,
-                    value->texture->init.format == CG_PRIV_FORMAT_DEPTH
-                        ? GL_DEPTH_ATTACHMENT
-                        : GL_COLOR_ATTACHMENT0,
-                    GL_TEXTURE_2D, 0, 0);
-
-                glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
-                glUseProgram (gl_shader->program);
               }
 
             glActiveTexture (gl_texture_slot_enums[textures]);
@@ -1699,11 +1737,8 @@ setup_or_teardown (GLuint framebuffer,
                     GUINT_TO_POINTER (uniform->location)));
             g_assert (block_index > 0);
 
-            glUniformBlockBinding (gl_shader->program,
-                                   teardown ? 0 : block_index - 1,
-                                   0);
-            glBindBufferBase (GL_UNIFORM_BUFFER, 0,
-                              teardown ? 0 : gl_buffer->ubo_id);
+            glUniformBlockBinding (gl_shader->program, block_index - 1, 0);
+            glBindBufferBase (GL_UNIFORM_BUFFER, 0, teardown ? 0 : gl_buffer->ubo_id);
           }
           break;
         case CG_TYPE_BOOL:
@@ -1849,7 +1884,8 @@ process_instr_node (GNode *node,
   CglGpu *gl_gpu = (CglGpu *)commands->gpu;
   CgPrivInstr *pass_instr = NULL;
   GLuint framebuffer = 0;
-  GLuint blit_framebuffer = 0;
+  GLuint blit_read_fb = 0;
+  GLuint blit_draw_fb = 0;
   CgShader *shader = NULL;
   CglShader *gl_shader = NULL;
 
@@ -1866,13 +1902,13 @@ process_instr_node (GNode *node,
   else
     framebuffer = g_array_index (gl_gpu->framebuffer_stack, GLuint, pass_instr->depth);
 
-  blit_framebuffer = g_array_index (
-      gl_gpu->framebuffer_stack, GLuint, pass_instr->depth + 1);
+  blit_read_fb = g_array_index (gl_gpu->framebuffer_stack, GLuint, pass_instr->depth + 1);
+  blit_draw_fb = g_array_index (gl_gpu->framebuffer_stack, GLuint, pass_instr->depth + 2);
 
   if (node->prev == NULL
       && !setup_or_teardown (
-          framebuffer, blit_framebuffer, instr,
-          pass_instr, data, FALSE))
+          framebuffer, blit_read_fb, blit_draw_fb,
+          instr, pass_instr, data, FALSE))
     return TRUE;
 
   if (node->prev != NULL
@@ -1896,14 +1932,62 @@ process_instr_node (GNode *node,
             &instr->vertices.one_buffer, 1,
             shader, instr->vertices.instances);
       break;
+    case CG_PRIV_INSTR_BLIT:
+      {
+        CglTexture *gl_texture = (CglTexture *)instr->blit.src;
+        GLenum status = 0;
+
+        glBindFramebuffer (GL_FRAMEBUFFER, blit_read_fb);
+        glFramebufferTexture2D (
+            GL_FRAMEBUFFER,
+            instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
+                ? GL_DEPTH_ATTACHMENT
+                : GL_COLOR_ATTACHMENT0,
+            instr->blit.src->init.msaa > 0
+                ? GL_TEXTURE_2D_MULTISAMPLE
+                : GL_TEXTURE_2D,
+            gl_texture->id, 0);
+
+        status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE)
+          {
+            CGL_SET_ERROR (
+                data->error,
+                CG_ERROR_FAILED_TARGET_CREATION,
+                "Failed to complete framebuffer");
+            return FALSE;
+          }
+
+        glBindFramebuffer (GL_READ_FRAMEBUFFER, blit_read_fb);
+        glBindFramebuffer (GL_DRAW_FRAMEBUFFER, framebuffer);
+        glBlitFramebuffer (
+            0, 0, instr->blit.src->init.width, instr->blit.src->init.height,
+            pass_instr->pass.dest[0], pass_instr->pass.dest[1],
+            pass_instr->pass.dest[2], pass_instr->pass.dest[3],
+            instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
+                ? GL_DEPTH_BUFFER_BIT
+                : GL_COLOR_BUFFER_BIT,
+            GL_NEAREST);
+
+        glFramebufferTexture2D (
+            GL_FRAMEBUFFER,
+            instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
+                ? GL_DEPTH_ATTACHMENT
+                : GL_COLOR_ATTACHMENT0,
+            GL_TEXTURE_2D, 0, 0);
+
+        glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
+        glUseProgram (gl_shader->program);
+      }
+      break;
     default:
       g_assert_not_reached ();
     }
 
   if (node->next == NULL
       && !setup_or_teardown (
-          framebuffer, blit_framebuffer, instr,
-          pass_instr, data, TRUE))
+          framebuffer, blit_read_fb, blit_draw_fb,
+          instr, pass_instr, data, TRUE))
     return TRUE;
 
   return FALSE;
@@ -1918,9 +2002,6 @@ commands_dispatch (
   CglCommands *gl_commands = (CglCommands *)self;
 
   gpu_flush (self->gpu, error);
-
-  glClearColor (0, 0, 0, 0);
-  glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   data.commands = self;
   glGetIntegerv (GL_FRAMEBUFFER_BINDING, &data.framebuffer);
