@@ -301,27 +301,64 @@ enum
   CG_N_TEST_FUNCS /*!< DO NOT USE */
 };
 
-/*! @brief State properties for
- *         @a cg_plan_push_state
+/*! @brief Blending modes
+ *
+ * Used to control the manner in which component
+ * writes merge with existing values.
  *
  */
 enum
 {
+  CG_BLEND_0 = 0, /*!< DO NOT USE */
+
+  CG_BLEND_ZERO,
+  CG_BLEND_ONE,
+  CG_BLEND_SRC_COLOR,
+  CG_BLEND_ONE_MINUS_SRC_COLOR,
+  CG_BLEND_DST_COLOR,
+  CG_BLEND_ONE_MINUS_DST_COLOR,
+  CG_BLEND_SRC_ALPHA,
+  CG_BLEND_ONE_MINUS_SRC_ALPHA,
+  CG_BLEND_DST_ALPHA,
+  CG_BLEND_ONE_MINUS_DST_ALPHA,
+  CG_BLEND_CONSTANT_COLOR,
+  CG_BLEND_ONE_MINUS_CONSTANT_COLOR,
+  CG_BLEND_CONSTANT_ALPHA,
+  CG_BLEND_ONE_MINUS_CONSTANT_ALPHA,
+  CG_BLEND_SRC_ALPHA_SATURATE,
+  CG_BLEND_SRC1_COLOR,
+  CG_BLEND_ONE_MINUS_SRC1_COLOR,
+  CG_BLEND_SRC1_ALPHA,
+  CG_BLEND_ONE_MINUS_SRC1_ALPHA,
+
+  CG_N_BLENDS /*!< DO NOT USE */
+};
+
+/*! @brief State properties for @a cg_plan_push_state */
+enum
+{
   CG_STATE_0 = 0, /*!< DO NOT USE */
 
-  CG_STATE_TARGET,     /*!< Add a render target; type: @a CG_TYPE_TEXTURE */
-  CG_STATE_SHADER,     /*!< Set the shader; type: @a CG_TYPE_SHADER */
-  CG_STATE_UNIFORM,    /*!< Set a uniform; type: @a CG_TYPE_KEYVAL */
-  CG_STATE_DEST,       /*!< Set the viewport; type: @a CG_TYPE_RECT */
-  CG_STATE_WRITE_MASK, /*!< Set the write mask; type: @a CG_TYPE_UINT */
-  CG_STATE_DEPTH_FUNC, /*!< Set the depth comparison func; type: @a CG_TYPE_INT */
+  CG_STATE_TARGET,     /*!< Add a render target;
+                            of type: @a CG_TYPE_TEXTURE
+                            or type: @a CG_TYPE_TUPLE3 { @a CG_TYPE_TEXTURE ,
+                                                         @a CG_TYPE_INT (src blend) ,
+                                                         @a CG_TYPE_INT (dest blend) } */
+  CG_STATE_SHADER,     /*!< Set the shader;
+                            of type: @a CG_TYPE_SHADER */
+  CG_STATE_UNIFORM,    /*!< Set a uniform;
+                            of type: @a CG_TYPE_KEYVAL */
+  CG_STATE_DEST,       /*!< Set the viewport;
+                            of type: @a CG_TYPE_RECT */
+  CG_STATE_WRITE_MASK, /*!< Set the write mask;
+                            of type: @a CG_TYPE_UINT */
+  CG_STATE_DEPTH_FUNC, /*!< Set the depth comparison func;
+                            of type: @a CG_TYPE_INT */
 
   CG_N_STATES /*!< DO NOT USE */
 };
 
-/*! @brief A @a CgValue type.
- *
- */
+/*! @brief A @a CgValue type. */
 enum
 {
   CG_TYPE_0 = 0, /*!< DO NOT USE */
@@ -343,6 +380,10 @@ enum
   CG_TYPE_RECT, /*!< `int[4]` */
 
   CG_TYPE_KEYVAL, /*!< `char *` and another @a CgValue */
+
+  CG_TYPE_TUPLE2, /*!< ordered tuple of 2 @a CgValue */
+  CG_TYPE_TUPLE3, /*!< ordered tuple of 3 @a CgValue */
+  CG_TYPE_TUPLE4, /*!< ordered tuple of 4 @a CgValue */
 
   CG_N_TYPES /*!< DO NOT USE */
 };
@@ -398,6 +439,10 @@ struct _CgValue
         CgValue *val;
       } initialized;
     } keyval;
+
+    const CgValue *tuple2[2];
+    const CgValue *tuple3[3];
+    const CgValue *tuple4[4];
   };
 };
 
@@ -421,6 +466,10 @@ struct _CgValue
 #define CG_MAT4(v) CG_CONVERT_TO_VALUE (CG_TYPE_MAT4, mat4, { .foreign = (v) })
 
 #define CG_KEYVAL(k, v) CG_CONVERT_TO_VALUE (CG_TYPE_KEYVAL, keyval, { .foreign = { .key = (k), .val = (v) } })
+
+#define CG_TUPLE2(one, two) CG_VEC (CG_TYPE_TUPLE2, tuple2, one, two)
+#define CG_TUPLE3(one, two, three) CG_VEC (CG_TYPE_TUPLE3, tuple3, one, two, three)
+#define CG_TUPLE4(one, two, three, four) CG_VEC (CG_TYPE_TUPLE4, tuple4, one, two, three, four)
 
 /*! @brief A pixel buffer format. */
 enum
@@ -877,8 +926,10 @@ void cg_plan_begin_config (CgPlan *self);
  *         child render passes.
  *
  * @param [in] self The plan object.
- * @param [in] first_target The first target to add.
- * @param [in] ... Remaining targets, terminated with `NULL`.
+ * @param [in] first_target The first target to
+ *        add as specified by @a CG_STATE_TARGET
+ * @param [in] ... Remaining target configurations,
+ *         terminated with `NULL`.
  *
  * @memberof CgPlan
  *
@@ -886,14 +937,15 @@ void cg_plan_begin_config (CgPlan *self);
 CPC_GPU_AVAILABLE_IN_ALL
 void cg_plan_config_targets (
     CgPlan *self,
-    CgTexture *first_target,
+    const CgValue *first_target,
     ...) G_GNUC_NULL_TERMINATED;
 
 /*! @brief Like @a cg_plan_config_targets
  *         but read a sized buffer instead.
  *
  * @param [in] self The plan object.
- * @param [in] targets A buffer of targets.
+ * @param [in] targets A buffer of @a CgValue as
+ *        specified by @a CG_STATE_TARGET
  * @param [in] n_targets The length of the buffer.
  *
  * @memberof CgPlan
@@ -902,7 +954,7 @@ void cg_plan_config_targets (
 CPC_GPU_AVAILABLE_IN_ALL
 void cg_plan_config_targets_v (
     CgPlan *self,
-    CgTexture **targets,
+    const CgValue *const *targets,
     guint n_targets);
 
 /*! @brief Set the shader for the group's
@@ -923,10 +975,8 @@ void cg_plan_config_shader (
  *         group's child render passes.
  *
  * @param [in] self The plan object.
- * @param [in] first_name The first uniform's name.
- * @param [in] first_value The first uniform's value.
- * @param [in] ... Remaining name-value pairs,
- *             terminated with `NULL`.
+ * @param [in] first_keyval The first keyval.
+ * @param [in] ... Remaining keyvals, terminated with `NULL`.
  *
  * @memberof CgPlan
  *
@@ -934,17 +984,15 @@ void cg_plan_config_shader (
 CPC_GPU_AVAILABLE_IN_ALL
 void cg_plan_config_uniforms (
     CgPlan *self,
-    const char *first_name,
-    const CgValue *first_value,
+    const CgValue *first_keyval,
     ...) G_GNUC_NULL_TERMINATED;
 
 /*! @brief Like @a cg_plan_config_uniforms
  *         but read sized buffers instead.
  *
  * @param [in] self The plan object.
- * @param [in] names A buffer of names.
- * @param [in] values A buffer of values.
- * @param [in] n_uniforms The length of the buffers.
+ * @param [in] keyvals A buffer of keyvals.
+ * @param [in] n_keyvals The length of the buffer.
  *
  * @memberof CgPlan
  *
@@ -952,9 +1000,8 @@ void cg_plan_config_uniforms (
 CPC_GPU_AVAILABLE_IN_ALL
 void cg_plan_config_uniforms_v (
     CgPlan *self,
-    const char **names,
-    const CgValue *values,
-    guint n_uniforms);
+    const CgValue *const *keyvals,
+    guint n_keyvals);
 
 /*! @brief Override the viewport for the
  *         group's child render passes.

@@ -156,7 +156,7 @@ render (GtkGLArea *area,
   graphene_matrix_init_identity (&transform);
   graphene_matrix_rotate (&transform, cube_rotation, graphene_vec3_y_axis ());
   graphene_matrix_rotate (&transform, -25.0, graphene_vec3_x_axis ());
-  graphene_matrix_translate (&transform, &GRAPHENE_POINT3D_INIT (0, 0, MAX (MAX (MAX (width, height), depth) * 5.0, 10.0)));
+  graphene_matrix_translate (&transform, &GRAPHENE_POINT3D_INIT (0, 0, MAX (MAX (MAX (width, height), depth) * 4.0, 10.0)));
 
   graphene_matrix_multiply (&transform, &view, &tmp);
   graphene_matrix_multiply (&tmp, &projection, &mvp);
@@ -200,9 +200,9 @@ render (GtkGLArea *area,
               for (int z = 0; z < depth; z++)
                 {
                   guint idx = 3 * (x * height * depth + y * depth + z);
-                  offsets_buf[idx + 0] = 2.5 * ((float)x - (float)(width - 1) / 2.0);
-                  offsets_buf[idx + 1] = 2.5 * ((float)y - (float)(height - 1) / 2.0);
-                  offsets_buf[idx + 2] = 2.5 * ((float)z - (float)(depth - 1) / 2.0);
+                  offsets_buf[idx + 0] = 3.0 * ((float)x - (float)(width - 1) / 2.0);
+                  offsets_buf[idx + 1] = 3.0 * ((float)y - (float)(height - 1) / 2.0);
+                  offsets_buf[idx + 2] = 3.0 * ((float)z - (float)(depth - 1) / 2.0);
                 }
             }
         }
@@ -217,18 +217,15 @@ render (GtkGLArea *area,
   cg_plan_push_state (
       plan,
       CG_STATE_DEST, CG_RECT (0, 0, screen_width, screen_height),
-      CG_STATE_DEPTH_FUNC, CG_INT (CG_TEST_LEQUAL),
-      CG_STATE_WRITE_MASK, CG_UINT (CG_WRITE_MASK_ALL),
+      CG_STATE_WRITE_MASK, CG_UINT (CG_WRITE_MASK_COLOR),
       CG_STATE_SHADER, CG_SHADER (shader),
       NULL);
 
   cg_plan_push_state (
       plan,
-      CG_STATE_DEST, CG_RECT (0, 0, screen_width, screen_height),
-      CG_STATE_DEPTH_FUNC, CG_INT (CG_TEST_LEQUAL),
       CG_STATE_WRITE_MASK, CG_UINT (CG_WRITE_MASK_ALL),
-      CG_STATE_SHADER, CG_SHADER (shader),
-      CG_STATE_TARGET, CG_TEXTURE (tmp_target),
+      CG_STATE_DEPTH_FUNC, CG_INT (CG_TEST_LEQUAL),
+      CG_STATE_TARGET, CG_TUPLE3 (CG_TEXTURE (tmp_target), CG_INT (CG_BLEND_SRC_ALPHA), CG_INT (CG_BLEND_ONE_MINUS_SRC_ALPHA)),
       CG_STATE_TARGET, CG_TEXTURE (tmp_depth),
       CG_STATE_UNIFORM, CG_KEYVAL ("mvp", CG_MAT4 (mvp_arr)),
       CG_STATE_UNIFORM, CG_KEYVAL ("normal", CG_MAT4 (normal_arr)),
@@ -391,7 +388,7 @@ on_activate (GtkApplication *app)
 
   gtk_widget_set_hexpand (gl_area, TRUE);
   gtk_gl_area_set_allowed_apis (GTK_GL_AREA (gl_area), GDK_GL_API_GL);
-  gtk_gl_area_set_has_depth_buffer (GTK_GL_AREA (gl_area), TRUE);
+  gtk_gl_area_set_has_depth_buffer (GTK_GL_AREA (gl_area), FALSE);
   g_signal_connect (gl_area, "realize", G_CALLBACK (realize), NULL);
   g_signal_connect (gl_area, "unrealize", G_CALLBACK (unrealize), NULL);
   g_signal_connect (gl_area, "render", G_CALLBACK (render), NULL);

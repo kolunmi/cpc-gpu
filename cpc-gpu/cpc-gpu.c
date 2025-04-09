@@ -266,7 +266,7 @@ destroy_instr_node_data (GNode *node,
         {
         case CG_PRIV_INSTR_PASS:
           g_clear_pointer (&instr->pass.shader, cg_shader_unref);
-          g_clear_pointer (&instr->pass.targets, g_ptr_array_unref);
+          g_clear_pointer (&instr->pass.targets, g_array_unref);
           g_clear_pointer (&instr->pass.attributes, g_hash_table_unref);
           g_clear_pointer (&instr->pass.uniforms.hash, g_hash_table_unref);
           g_clear_pointer (&instr->pass.uniforms.order, g_ptr_array_unref);
@@ -337,7 +337,7 @@ void
 cg_priv_buffer_finish (CgBuffer *self)
 {
   g_clear_pointer (&self->init.data, g_free);
-  clear_data_layout (self->spec, self->spec_length);
+  cg_priv_clear_data_layout (self->spec, self->spec_length);
   g_clear_pointer (&self->spec, g_free);
   g_clear_pointer (&self->gpu, cg_gpu_unref);
 }
@@ -443,7 +443,7 @@ hint_buffer_layout (
       segments_dup[i].instance_rate = spec[i].instance_rate;
     }
 
-  clear_data_layout (self->spec, self->spec_length);
+  cg_priv_clear_data_layout (self->spec, self->spec_length);
   CG_PRIV_REPLACE_POINTER (&self->spec, g_steal_pointer (&segments_dup), g_free);
   self->spec_length = spec_length;
 }
@@ -661,9 +661,10 @@ cg_plan_begin_config (CgPlan *self)
   g_return_if_fail (self->configuring == NULL);
 
   instr = CG_PRIV_CREATE (instr);
-  instr->depth = g_node_depth (self->cur_instr) + 1;
+  instr->depth = self->cur_instr != NULL ? ((CgPrivInstr *)self->cur_instr->data)->depth + 1 : 0;
   instr->type = CG_PRIV_INSTR_PASS;
-  instr->pass.targets = g_ptr_array_new_with_free_func (cg_texture_unref);
+  instr->pass.targets = g_array_new (FALSE, TRUE, sizeof (CgPrivTarget));
+  g_array_set_clear_func (instr->pass.targets, cg_priv_clear_target);
   instr->pass.uniforms.hash = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, cg_priv_destroy_value);
   instr->pass.uniforms.order = g_ptr_array_new ();
   instr->pass.attributes = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
@@ -676,32 +677,70 @@ cg_plan_begin_config (CgPlan *self)
 
 static void
 config_targets (CgPlan *self,
-                CgTexture **targets,
+                const CgValue *const *targets,
                 guint n_targets)
 {
-  GPtrArray *config_targets = NULL;
   guint old_length = 0;
 
   g_assert (self->configuring != NULL);
   g_assert (self->configuring->type == CG_PRIV_INSTR_PASS);
 
-  config_targets = self->configuring->pass.targets;
-  old_length = config_targets->len;
-  g_ptr_array_set_size (config_targets, old_length + n_targets);
+  old_length = self->configuring->pass.targets->len;
+  g_array_set_size (self->configuring->pass.targets, old_length + n_targets);
 
   for (guint i = 0; i < n_targets; i++)
-    g_ptr_array_index (config_targets, old_length + i)
-        = cg_texture_ref (targets[i]);
+    {
+      CgPrivTarget *target = NULL;
+
+      target = &g_array_index (self->configuring->pass.targets, CgPrivTarget, old_length + i);
+
+      switch (targets[i]->type)
+        {
+        case CG_TYPE_TEXTURE:
+          target->texture = cg_texture_ref (targets[i]->texture);
+          target->src_blend = CG_BLEND_SRC_ALPHA;
+          target->dst_blend = CG_BLEND_ONE_MINUS_SRC_ALPHA;
+          break;
+        case CG_TYPE_TUPLE3:
+          target->texture = cg_texture_ref (targets[i]->tuple3[0]->texture);
+          target->src_blend = targets[i]->tuple3[1]->i;
+          target->dst_blend = targets[i]->tuple3[2]->i;
+          break;
+        default:
+          g_assert_not_reached ();
+        }
+    }
+}
+
+static gboolean
+check_target_types (const CgValue *const *targets,
+                    guint n_targets)
+{
+  for (guint i = 0; i < n_targets; i++)
+    {
+      if (targets[i]->type == CG_TYPE_TEXTURE
+          || (targets[i]->type == CG_TYPE_TUPLE3
+              && targets[i]->tuple3[0]->type == CG_TYPE_TEXTURE
+              && targets[i]->tuple3[1]->type == CG_TYPE_INT
+              && targets[i]->tuple3[1]->i > CG_BLEND_0
+              && targets[i]->tuple3[1]->i < CG_N_BLENDS
+              && targets[i]->tuple3[2]->type == CG_TYPE_INT
+              && targets[i]->tuple3[2]->i > CG_BLEND_0
+              && targets[i]->tuple3[2]->i < CG_N_BLENDS))
+        continue;
+      return FALSE;
+    }
+  return TRUE;
 }
 
 void
 cg_plan_config_targets (
     CgPlan *self,
-    CgTexture *first_target,
+    const CgValue *first_target,
     ...)
 {
   guint n_targets = 0;
-  CgTexture *targets[32] = { 0 };
+  const CgValue *targets[32] = { 0 };
 
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring != NULL);
@@ -710,19 +749,22 @@ cg_plan_config_targets (
   CG_PRIV_GATHER_VA_ARGS_INTO (
       first_target, targets, G_N_ELEMENTS (targets), n_targets);
 
+  g_return_if_fail (check_target_types (targets, n_targets));
+
   config_targets (self, targets, n_targets);
 }
 
 void
 cg_plan_config_targets_v (
     CgPlan *self,
-    CgTexture **targets,
+    const CgValue *const *targets,
     guint n_targets)
 {
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring != NULL);
   g_return_if_fail (targets != NULL);
   g_return_if_fail (n_targets > 0);
+  g_return_if_fail (check_target_types (targets, n_targets));
 
   config_targets (self, targets, n_targets);
 }
@@ -743,75 +785,69 @@ cg_plan_config_shader (
 
 static void
 add_uniform (CgPlan *self,
-             const char *name,
              const CgValue *value)
 {
   char *key = NULL;
   CgValue *new_value = NULL;
 
-  key = g_strdup (name);
+  key = g_strdup (value->keyval.foreign.key);
   new_value = cg_priv_transfer_value_from_static_foreign (
       CG_PRIV_CREATE (new_value),
-      value);
+      value->keyval.foreign.val);
 
   g_hash_table_replace (self->configuring->pass.uniforms.hash, key, new_value);
   g_ptr_array_add (self->configuring->pass.uniforms.order, key);
 }
 
+static gboolean
+check_uniform_types (const CgValue *const *uniforms,
+                     guint n_uniforms)
+{
+  for (guint i = 0; i < n_uniforms; i++)
+    {
+      if (uniforms[i]->type == CG_TYPE_KEYVAL)
+        continue;
+      return FALSE;
+    }
+  return TRUE;
+}
+
 void
 cg_plan_config_uniforms (
     CgPlan *self,
-    const char *first_name,
-    const CgValue *first_value,
+    const CgValue *first_keyval,
     ...)
 {
-  int n_arr = 0;
-  va_list var_args = { 0 };
-  const char *key = NULL;
-  const CgValue *value = NULL;
+  const CgValue *keyvals[32] = { 0 };
+  guint n_keyvals = 0;
 
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring != NULL);
-  g_return_if_fail (first_name != NULL);
-  g_return_if_fail (first_value != NULL);
+  g_return_if_fail (first_keyval != NULL);
 
-  key = first_name;
-  value = first_value;
+  CG_PRIV_GATHER_VA_ARGS_INTO (
+      first_keyval, keyvals, G_N_ELEMENTS (keyvals), n_keyvals);
 
-  va_start (var_args, first_value);
-  for (;;)
-    {
-      add_uniform (self, key, value);
+  g_return_if_fail (check_uniform_types (keyvals, n_keyvals));
 
-      n_arr++;
-      key = va_arg (var_args, const char *);
-      if (key == NULL) break;
-
-      value = va_arg (var_args, const CgValue *);
-      if (value == NULL)
-        {
-          CG_PRIV_CRITICAL ("Keyval pair %d does not have a value.", n_arr);
-          break;
-        }
-    }
-  va_end (var_args);
+  for (guint i = 0; i < n_keyvals; i++)
+    add_uniform (self, keyvals[i]);
 }
 
 void
 cg_plan_config_uniforms_v (
     CgPlan *self,
-    const char **names,
-    const CgValue *values,
-    guint n_uniforms)
+    const CgValue *const *keyvals,
+    guint n_keyvals)
 {
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring != NULL);
-  g_return_if_fail (names != NULL);
-  g_return_if_fail (values != NULL);
-  g_return_if_fail (n_uniforms > 0);
+  g_return_if_fail (keyvals != NULL);
+  g_return_if_fail (n_keyvals > 0);
+  g_return_if_fail (check_uniform_types (keyvals, n_keyvals));
 
-  for (guint i = 0; i < n_uniforms; i++)
-    add_uniform (self, names[i], values + i);
+  for (guint i = 0; i < n_keyvals; i++)
+    add_uniform (self, keyvals[i]);
 }
 
 void
@@ -865,8 +901,46 @@ cg_plan_push_group (CgPlan *self)
 {
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring != NULL);
+  g_assert (self->configuring->type == CG_PRIV_INSTR_PASS);
 
-  if (self->cur_instr == NULL)
+  if (self->cur_instr != NULL)
+    {
+      CgPrivInstr *parent_pass = self->cur_instr->data;
+
+      self->configuring->pass.fake = TRUE;
+
+      if (self->configuring->pass.targets->len == 0)
+        CG_PRIV_REPLACE_POINTER_REF (
+            &self->configuring->pass.targets,
+            parent_pass->pass.targets,
+            g_array_ref, g_array_unref);
+      else
+        self->configuring->pass.fake = FALSE;
+
+      if (self->configuring->pass.shader == NULL)
+        self->configuring->pass.shader = cg_shader_ref (parent_pass->pass.shader);
+      else
+        self->configuring->pass.fake = FALSE;
+
+      if (self->configuring->pass.fake)
+        self->configuring->depth = parent_pass->depth;
+
+      if (self->configuring->pass.dest[0] < 0)
+        memcpy (self->configuring->pass.dest,
+                parent_pass->pass.dest,
+                sizeof (self->configuring->pass.dest));
+
+      if (self->configuring->pass.write_mask == 0)
+        self->configuring->pass.write_mask = parent_pass->pass.write_mask;
+
+      if (self->configuring->pass.depth_test_func == 0)
+        self->configuring->pass.depth_test_func = parent_pass->pass.depth_test_func;
+
+      self->cur_instr = g_node_append_data (
+          self->cur_instr,
+          g_steal_pointer (&self->configuring));
+    }
+  else
     {
       CG_PRIV_REPLACE_POINTER (
           &self->root_instr,
@@ -874,20 +948,36 @@ cg_plan_push_group (CgPlan *self)
           cg_priv_destroy_instr_node);
       self->cur_instr = self->root_instr;
     }
-  else
-    self->cur_instr = g_node_append_data (
-        self->cur_instr,
-        g_steal_pointer (&self->configuring));
 }
 
-static const int state_types[CG_N_STATES] = {
-  [CG_STATE_TARGET] = CG_TYPE_TEXTURE,
-  [CG_STATE_SHADER] = CG_TYPE_SHADER,
-  [CG_STATE_UNIFORM] = CG_TYPE_KEYVAL,
-  [CG_STATE_DEST] = CG_TYPE_RECT,
-  [CG_STATE_WRITE_MASK] = CG_TYPE_UINT,
-  [CG_STATE_DEPTH_FUNC] = CG_TYPE_INT,
-};
+static void
+set_dest_from_value (CgPlan *self,
+                     const CgValue *value)
+{
+  g_return_if_fail (value->type == CG_TYPE_RECT);
+  cg_plan_config_dest (
+      self,
+      value->rect[0],
+      value->rect[1],
+      value->rect[2],
+      value->rect[3]);
+}
+
+static void
+set_write_mask_from_value (CgPlan *self,
+                           const CgValue *value)
+{
+  g_return_if_fail (value->type == CG_TYPE_UINT);
+  cg_plan_config_write_mask (self, value->ui);
+}
+
+static void
+set_depth_test_func_from_value (CgPlan *self,
+                                const CgValue *value)
+{
+  g_return_if_fail (value->type == CG_TYPE_INT);
+  cg_plan_config_depth_test_func (self, value->i);
+}
 
 void
 cg_plan_push_state (
@@ -897,93 +987,62 @@ cg_plan_push_state (
     ...)
 {
   va_list var_args = { 0 };
-  int tmp_key = 0;
-  const CgValue *tmp_value = NULL;
-  guint n_keyvals = 0;
-  int keys[64] = { 0 };
-  const CgValue *values[G_N_ELEMENTS (keys)] = { 0 };
+  int key = 0;
+  const CgValue *value = NULL;
 
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring == NULL);
   g_return_if_fail (first_value != NULL);
 
-  tmp_key = first_prop;
-  tmp_value = first_value;
+  key = first_prop;
+  value = first_value;
+
+  cg_plan_begin_config (self);
 
   va_start (var_args, first_value);
   for (;;)
     {
-      if (tmp_key <= CG_STATE_0 || tmp_key >= CG_N_STATES)
+      if (key <= CG_STATE_0 || key >= CG_N_STATES)
         {
-          CG_PRIV_CRITICAL ("Key %d was not recognized as valid.", tmp_key);
+          CG_PRIV_CRITICAL ("Key %d was not recognized as valid.", key);
           break;
         }
-      keys[n_keyvals] = tmp_key;
-      values[n_keyvals] = tmp_value;
-      n_keyvals++;
-      if (n_keyvals >= G_N_ELEMENTS (keys))
+
+      switch (key)
         {
-          CG_PRIV_CRITICAL (
-              "Too many arguments passed "
-              "to variadic function. The max was "
-              "%d keyval pairs. Input "
-              "will be truncated.",
-              (int)G_N_ELEMENTS (keys));
+        case CG_STATE_SHADER:
+          cg_plan_config_shader (self, value->shader);
+          break;
+        case CG_STATE_TARGET:
+          cg_plan_config_targets (self, value, NULL);
+          break;
+        case CG_STATE_UNIFORM:
+          cg_plan_config_uniforms (self, value, NULL);
+          break;
+        case CG_STATE_DEST:
+          set_dest_from_value (self, value);
+          break;
+        case CG_STATE_WRITE_MASK:
+          set_write_mask_from_value (self, value);
+          break;
+        case CG_STATE_DEPTH_FUNC:
+          set_depth_test_func_from_value (self, value);
+          break;
+        default:
+          CG_PRIV_CRITICAL ("%d is not a recognized state enum.", key);
           break;
         }
-      tmp_key = va_arg (var_args, int);
-      if (tmp_key == 0) break;
-      tmp_value = va_arg (var_args, const CgValue *);
-      if (tmp_value == NULL)
+
+      key = va_arg (var_args, int);
+      if (key == 0) break;
+      value = va_arg (var_args, const CgValue *);
+      if (value == NULL)
         {
-          CG_PRIV_CRITICAL ("Keyval pair %d does not have a value.", (int)n_keyvals);
+          CG_PRIV_CRITICAL ("Trailing keyval pair does not have a value.");
           break;
         }
     }
   va_end (var_args);
-  g_return_if_fail (n_keyvals > 0);
-
-  cg_plan_begin_config (self);
-
-  /* TODO: optimize this */
-  for (guint i = 0; i < n_keyvals; i++)
-    {
-      if (state_types[keys[i]] == values[i]->type)
-        {
-          switch (keys[i])
-            {
-            case CG_STATE_SHADER:
-              cg_plan_config_shader (self, values[i]->shader);
-              break;
-            case CG_STATE_TARGET:
-              cg_plan_config_targets (self, values[i]->texture, NULL);
-              break;
-            case CG_STATE_UNIFORM:
-              cg_plan_config_uniforms (self, values[i]->keyval.foreign.key, values[i]->keyval.foreign.val, NULL);
-              break;
-            case CG_STATE_DEST:
-              cg_plan_config_dest (
-                  self,
-                  values[i]->rect[0],
-                  values[i]->rect[1],
-                  values[i]->rect[2],
-                  values[i]->rect[3]);
-              break;
-            case CG_STATE_WRITE_MASK:
-              cg_plan_config_write_mask (self, values[i]->ui);
-              break;
-            case CG_STATE_DEPTH_FUNC:
-              cg_plan_config_depth_test_func (self, values[i]->i);
-              break;
-            }
-        }
-      else
-        CG_PRIV_CRITICAL (
-            "Keyval pair %d is invalid, wanted "
-            "value of type %s, got type %s.",
-            i, cg_priv_get_type_name (state_types[keys[i]]),
-            cg_priv_get_type_name (values[i]->type));
-    }
 
   cg_plan_push_group (self);
 }
@@ -1071,9 +1130,6 @@ cg_plan_append (
 {
   CgBuffer *buffers[32] = { 0 };
   guint n_buffers = 0;
-  GNode *child = NULL;
-  CgPrivInstr *instr = NULL;
-  guint old_length = 0;
 
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring == NULL);

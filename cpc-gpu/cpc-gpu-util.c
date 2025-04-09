@@ -119,3 +119,22 @@ cg_priv_destroy_value (gpointer data)
   cg_priv_clear_value (value);
   g_free (value);
 }
+
+void
+cg_priv_clear_target (gpointer data)
+{
+  CgPrivTarget *target = data;
+
+  g_clear_pointer (&target->texture, cg_texture_unref);
+}
+
+void
+cg_priv_clear_data_layout (CgDataSegment *layout,
+                           guint length)
+{
+  if (layout == NULL)
+    return;
+
+  for (guint i = 0; i < length; i++)
+    g_free (layout[i].name);
+}

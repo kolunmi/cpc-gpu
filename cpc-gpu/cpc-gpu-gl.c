@@ -1345,10 +1345,10 @@ ensure_instr_node (GNode *node,
         for (guint i = 0; i < instr->pass.targets->len; i++)
           {
             gboolean success = FALSE;
-            CgTexture *target = NULL;
+            CgPrivTarget *target = NULL;
 
-            target = g_ptr_array_index (instr->pass.targets, i);
-            success = ensure_texture (target, data->error);
+            target = &g_array_index (instr->pass.targets, CgPrivTarget, i);
+            success = ensure_texture (target->texture, data->error);
             if (!success)
               {
                 data->failure = TRUE;
@@ -1513,268 +1513,327 @@ static const GLenum gl_texture_slot_enums[] = {
   GL_TEXTURE30, GL_TEXTURE31
 };
 
+static const GLenum test_func_map[CG_N_TEST_FUNCS] = {
+  [CG_TEST_NEVER] = GL_NEVER,
+  [CG_TEST_ALWAYS] = GL_ALWAYS,
+  [CG_TEST_LESS] = GL_LESS,
+  [CG_TEST_LEQUAL] = GL_LEQUAL,
+  [CG_TEST_GREATER] = GL_GREATER,
+  [CG_TEST_GEQUAL] = GL_GEQUAL,
+  [CG_TEST_EQUAL] = GL_EQUAL,
+  [CG_TEST_NOT_EQUAL] = GL_NOTEQUAL,
+};
+
+static const GLenum blend_func_map[CG_N_BLENDS] = {
+  [CG_BLEND_ZERO] = GL_ZERO,
+  [CG_BLEND_ONE] = GL_ONE,
+  [CG_BLEND_SRC_COLOR] = GL_SRC_COLOR,
+  [CG_BLEND_ONE_MINUS_SRC_COLOR] = GL_ONE_MINUS_SRC_COLOR,
+  [CG_BLEND_DST_COLOR] = GL_DST_COLOR,
+  [CG_BLEND_ONE_MINUS_DST_COLOR] = GL_ONE_MINUS_DST_COLOR,
+  [CG_BLEND_SRC_ALPHA] = GL_SRC_ALPHA,
+  [CG_BLEND_ONE_MINUS_SRC_ALPHA] = GL_ONE_MINUS_SRC_ALPHA,
+  [CG_BLEND_DST_ALPHA] = GL_DST_ALPHA,
+  [CG_BLEND_ONE_MINUS_DST_ALPHA] = GL_ONE_MINUS_DST_ALPHA,
+  [CG_BLEND_CONSTANT_COLOR] = GL_CONSTANT_COLOR,
+  [CG_BLEND_ONE_MINUS_CONSTANT_COLOR] = GL_ONE_MINUS_CONSTANT_COLOR,
+  [CG_BLEND_CONSTANT_ALPHA] = GL_CONSTANT_ALPHA,
+  [CG_BLEND_ONE_MINUS_CONSTANT_ALPHA] = GL_ONE_MINUS_CONSTANT_ALPHA,
+  [CG_BLEND_SRC_ALPHA_SATURATE] = GL_SRC_ALPHA_SATURATE,
+  [CG_BLEND_SRC1_COLOR] = GL_SRC1_COLOR,
+  [CG_BLEND_ONE_MINUS_SRC1_COLOR] = GL_ONE_MINUS_SRC1_COLOR,
+  [CG_BLEND_SRC1_ALPHA] = GL_SRC1_ALPHA,
+  [CG_BLEND_ONE_MINUS_SRC1_ALPHA] = GL_ONE_MINUS_SRC1_ALPHA,
+};
+
 static gboolean
 setup_or_teardown (GLuint framebuffer,
                    GLuint blit_read_fb,
                    GLuint blit_draw_fb,
-                   CgPrivInstr *instr,
                    CgPrivInstr *pass_instr,
                    ProcessData *data,
+                   gboolean initial,
                    gboolean teardown)
 {
-  CgShader *shader = pass_instr->pass.shader;
-  CglShader *gl_shader = (CglShader *)shader;
+  CgShader *shader = NULL;
+  CglShader *gl_shader = NULL;
 
-  glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
-  glUseProgram (gl_shader->program);
+  shader = pass_instr->pass.shader;
+  gl_shader = (CglShader *)shader;
 
-  if (pass_instr->pass.dest[0] >= 0)
-    glViewport (pass_instr->pass.dest[0],
-                pass_instr->pass.dest[1],
-                pass_instr->pass.dest[2],
-                pass_instr->pass.dest[3]);
+  if (!teardown && (!pass_instr->pass.fake || !initial))
+    {
+      glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
+      glUseProgram (gl_shader->program);
+    }
 
+  glViewport (
+      pass_instr->pass.dest[0],
+      pass_instr->pass.dest[1],
+      pass_instr->pass.dest[2],
+      pass_instr->pass.dest[3]);
   glColorMask (
       pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_RED ? GL_TRUE : GL_FALSE,
       pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_GREEN ? GL_TRUE : GL_FALSE,
       pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_BLUE ? GL_TRUE : GL_FALSE,
       pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_ALPHA ? GL_TRUE : GL_FALSE);
-  glDepthMask (
-      pass_instr->pass.write_mask & CG_WRITE_MASK_DEPTH ? GL_TRUE : GL_FALSE);
+  glDepthMask (pass_instr->pass.write_mask & CG_WRITE_MASK_DEPTH ? GL_TRUE : GL_FALSE);
+  if (pass_instr->pass.depth_test_func > 0)
+    glDepthFunc (test_func_map[pass_instr->pass.depth_test_func]);
 
-  for (guint i = 0, colors = 0, depths = 0;
-       i < pass_instr->pass.targets->len;
-       i++)
+  if (!pass_instr->pass.fake && (initial || teardown))
     {
-      CgTexture *target = NULL;
-      CglTexture *gl_target = NULL;
+      gboolean has_depth = TRUE;
 
-      target = g_ptr_array_index (pass_instr->pass.targets, i);
-      gl_target = (CglTexture *)target;
-
-      if (target->init.format == CG_PRIV_FORMAT_DEPTH)
+      for (guint i = 0, colors = 0, depths = 0;
+           i < pass_instr->pass.targets->len;
+           i++)
         {
-          g_assert (depths == 0);
+          CgPrivTarget *target = NULL;
+          CglTexture *gl_target = NULL;
 
-          glFramebufferTexture2D (
-              GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-              target->init.msaa > 0
-                  ? GL_TEXTURE_2D_MULTISAMPLE
-                  : GL_TEXTURE_2D,
-              teardown
-                  ? 0
-                  : gl_target->id,
-              0);
-          depths++;
+          target = &g_array_index (pass_instr->pass.targets, CgPrivTarget, i);
+          gl_target = (CglTexture *)target->texture;
+
+          if (target->texture->init.format == CG_PRIV_FORMAT_DEPTH)
+            {
+              g_assert (depths == 0);
+
+              glFramebufferTexture2D (
+                  GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                  target->texture->init.msaa > 0
+                      ? GL_TEXTURE_2D_MULTISAMPLE
+                      : GL_TEXTURE_2D,
+                  teardown
+                      ? 0
+                      : gl_target->id,
+                  0);
+
+              has_depth = TRUE;
+              depths++;
+            }
+          else
+            {
+              g_assert (colors < G_N_ELEMENTS (gl_draw_buffer_enums));
+
+              glFramebufferTexture2D (
+                  GL_FRAMEBUFFER, gl_draw_buffer_enums[colors],
+                  target->texture->init.msaa > 0
+                      ? GL_TEXTURE_2D_MULTISAMPLE
+                      : GL_TEXTURE_2D,
+                  teardown
+                      ? 0
+                      : gl_target->id,
+                  0);
+              glBlendFunci (
+                  colors,
+                  blend_func_map[target->src_blend],
+                  blend_func_map[target->dst_blend]);
+
+              colors++;
+            }
         }
+
+      if (has_depth)
+        glEnable (GL_DEPTH_TEST);
       else
+        glDisable (GL_DEPTH_TEST);
+
+      if (initial)
         {
-          g_assert (colors < G_N_ELEMENTS (gl_draw_buffer_enums));
+          GLenum status = 0;
 
-          glFramebufferTexture2D (
-              GL_FRAMEBUFFER, gl_draw_buffer_enums[colors],
-              target->init.msaa > 0
-                  ? GL_TEXTURE_2D_MULTISAMPLE
-                  : GL_TEXTURE_2D,
-              teardown
-                  ? 0
-                  : gl_target->id,
-              0);
-          colors++;
-        }
-    }
+          glDrawBuffers (
+              CLAMP (pass_instr->pass.targets->len, 1, G_N_ELEMENTS (gl_draw_buffer_enums)),
+              gl_draw_buffer_enums);
 
-  glDrawBuffers (
-      CLAMP (pass_instr->pass.targets->len, 1, G_N_ELEMENTS (gl_draw_buffer_enums)),
-      gl_draw_buffer_enums);
-
-  if (!teardown)
-    {
-      GLenum status = 0;
-
-      status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
-      if (status != GL_FRAMEBUFFER_COMPLETE)
-        {
-          CGL_SET_ERROR (
-              data->error,
-              CG_ERROR_FAILED_TARGET_CREATION,
-              "Failed to complete framebuffer");
-          data->failure = TRUE;
-          return FALSE;
+          status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
+          if (status != GL_FRAMEBUFFER_COMPLETE)
+            {
+              CGL_SET_ERROR (
+                  data->error,
+                  CG_ERROR_FAILED_TARGET_CREATION,
+                  "Failed to complete framebuffer");
+              data->failure = TRUE;
+              return FALSE;
+            }
         }
 
-      glClearColor (0, 0, 0, 0);
-      glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    }
-
-  for (guint i = 0, textures = 0;
-       i < pass_instr->pass.uniforms.order->len;
-       i++)
-    {
-      const char *name = NULL;
-      CgValue *value = NULL;
-      guint uniform_index = 0;
-      ShaderLocation *uniform = NULL;
-
-      name = g_ptr_array_index (pass_instr->pass.uniforms.order, i);
-      value = g_hash_table_lookup (pass_instr->pass.uniforms.hash, name);
-
-      uniform_index = GPOINTER_TO_UINT (g_hash_table_lookup (gl_shader->uniform_assoc, name));
-      g_assert (uniform_index > 0);
-      uniform = &gl_shader->uniforms[uniform_index - 1];
-
-      g_assert (value != NULL);
-      g_assert (uniform != NULL);
-
-      switch (value->type)
+      for (guint i = 0, textures = 0;
+           i < pass_instr->pass.uniforms.order->len;
+           i++)
         {
-        case CG_TYPE_TEXTURE:
-          {
-            GLint textures_int = textures;
-            CglTexture *gl_texture = (CglTexture *)value->texture;
+          const char *name = NULL;
+          CgValue *value = NULL;
+          guint uniform_index = 0;
+          ShaderLocation *uniform = NULL;
 
-            g_assert (textures < G_N_ELEMENTS (gl_texture_slot_enums));
+          name = g_ptr_array_index (pass_instr->pass.uniforms.order, i);
+          value = g_hash_table_lookup (pass_instr->pass.uniforms.hash, name);
 
-            if (value->texture->init.msaa > 0)
+          uniform_index = GPOINTER_TO_UINT (g_hash_table_lookup (gl_shader->uniform_assoc, name));
+          g_assert (uniform_index > 0);
+          uniform = &gl_shader->uniforms[uniform_index - 1];
+
+          g_assert (value != NULL);
+          g_assert (uniform != NULL);
+
+          switch (value->type)
+            {
+            case CG_TYPE_TEXTURE:
               {
-                CglTexture *read_texture = NULL;
+                GLint textures_int = textures;
+                CglTexture *gl_texture = (CglTexture *)value->texture;
 
-                read_texture = gl_texture;
-                gl_texture = (CglTexture *)gl_texture->non_msaa;
+                g_assert (textures < G_N_ELEMENTS (gl_texture_slot_enums));
 
-                /* If the texture uses msaa, blit to a temp texture */
-                if (!teardown)
+                if (value->texture->init.msaa > 0)
                   {
-                    for (int j = 0; j < 2; j++)
+                    CglTexture *read_texture = NULL;
+
+                    read_texture = gl_texture;
+                    gl_texture = (CglTexture *)gl_texture->non_msaa;
+
+                    /* If the texture uses msaa, blit to a temp texture */
+                    if (!teardown)
                       {
-                        GLenum status = 0;
-
-                        glBindFramebuffer (
-                            GL_FRAMEBUFFER,
-                            j == 0
-                                ? blit_read_fb
-                                : blit_draw_fb);
-
-                        glFramebufferTexture2D (
-                            GL_FRAMEBUFFER,
-                            value->texture->init.format == CG_PRIV_FORMAT_DEPTH
-                                ? GL_DEPTH_ATTACHMENT
-                                : GL_COLOR_ATTACHMENT0,
-                            (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
-                                ? GL_TEXTURE_2D_MULTISAMPLE
-                                : GL_TEXTURE_2D,
-                            j == 0
-                                ? read_texture->id
-                                : gl_texture->id,
-                            0);
-
-                        status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
-                        if (status != GL_FRAMEBUFFER_COMPLETE)
+                        for (int j = 0; j < 2; j++)
                           {
-                            CGL_SET_ERROR (
-                                data->error,
-                                CG_ERROR_FAILED_TARGET_CREATION,
-                                "Failed to complete framebuffer");
-                            return FALSE;
+                            GLenum tmp_status = 0;
+
+                            glBindFramebuffer (
+                                GL_FRAMEBUFFER,
+                                j == 0
+                                    ? blit_read_fb
+                                    : blit_draw_fb);
+
+                            glFramebufferTexture2D (
+                                GL_FRAMEBUFFER,
+                                value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                    ? GL_DEPTH_ATTACHMENT
+                                    : GL_COLOR_ATTACHMENT0,
+                                (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
+                                    ? GL_TEXTURE_2D_MULTISAMPLE
+                                    : GL_TEXTURE_2D,
+                                j == 0
+                                    ? read_texture->id
+                                    : gl_texture->id,
+                                0);
+
+                            tmp_status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
+                            if (tmp_status != GL_FRAMEBUFFER_COMPLETE)
+                              {
+                                CGL_SET_ERROR (
+                                    data->error,
+                                    CG_ERROR_FAILED_TARGET_CREATION,
+                                    "Failed to complete framebuffer");
+                                return FALSE;
+                              }
                           }
-                      }
 
-                    glBindFramebuffer (GL_READ_FRAMEBUFFER, blit_read_fb);
-                    glBindFramebuffer (GL_DRAW_FRAMEBUFFER, blit_draw_fb);
-                    glBlitFramebuffer (
-                        0, 0, value->texture->init.width, value->texture->init.height,
-                        0, 0, value->texture->init.width, value->texture->init.height,
-                        value->texture->init.format == CG_PRIV_FORMAT_DEPTH
-                            ? GL_DEPTH_BUFFER_BIT
-                            : GL_COLOR_BUFFER_BIT,
-                        GL_NEAREST);
-
-                    for (int j = 0; j < 2; j++)
-                      {
-                        glBindFramebuffer (
-                            GL_FRAMEBUFFER,
-                            j == 0
-                                ? blit_read_fb
-                                : blit_draw_fb);
-
-                        glFramebufferTexture2D (
-                            GL_FRAMEBUFFER,
+                        glBindFramebuffer (GL_READ_FRAMEBUFFER, blit_read_fb);
+                        glBindFramebuffer (GL_DRAW_FRAMEBUFFER, blit_draw_fb);
+                        glBlitFramebuffer (
+                            0, 0, value->texture->init.width, value->texture->init.height,
+                            0, 0, value->texture->init.width, value->texture->init.height,
                             value->texture->init.format == CG_PRIV_FORMAT_DEPTH
-                                ? GL_DEPTH_ATTACHMENT
-                                : GL_COLOR_ATTACHMENT0,
-                            (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
-                                ? GL_TEXTURE_2D_MULTISAMPLE
-                                : GL_TEXTURE_2D,
-                            0, 0);
+                                ? GL_DEPTH_BUFFER_BIT
+                                : GL_COLOR_BUFFER_BIT,
+                            GL_NEAREST);
+
+                        for (int j = 0; j < 2; j++)
+                          {
+                            glBindFramebuffer (
+                                GL_FRAMEBUFFER,
+                                j == 0
+                                    ? blit_read_fb
+                                    : blit_draw_fb);
+
+                            glFramebufferTexture2D (
+                                GL_FRAMEBUFFER,
+                                value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                    ? GL_DEPTH_ATTACHMENT
+                                    : GL_COLOR_ATTACHMENT0,
+                                (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
+                                    ? GL_TEXTURE_2D_MULTISAMPLE
+                                    : GL_TEXTURE_2D,
+                                0, 0);
+                          }
+
+                        glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
+                        glUseProgram (gl_shader->program);
                       }
-
-                    glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
-                    glUseProgram (gl_shader->program);
                   }
+
+                glActiveTexture (gl_texture_slot_enums[textures]);
+                glBindTexture (value->texture->init.cubemap
+                                   ? GL_TEXTURE_CUBE_MAP
+                                   : GL_TEXTURE_2D,
+                               teardown
+                                   ? 0
+                                   : gl_texture->id);
+                glUniform1iv (uniform->location, 1, &textures_int);
+                glActiveTexture (gl_texture_slot_enums[0]);
+
+                textures++;
               }
+              break;
+            case CG_TYPE_BUFFER:
+              {
+                guint block_index = 0;
+                CglBuffer *gl_buffer = (CglBuffer *)value->buffer;
 
-            glActiveTexture (gl_texture_slot_enums[textures]);
-            glBindTexture (value->texture->init.cubemap
-                               ? GL_TEXTURE_CUBE_MAP
-                               : GL_TEXTURE_2D,
-                           teardown
-                               ? 0
-                               : gl_texture->id);
-            glUniform1iv (uniform->location, 1, &textures_int);
-            glActiveTexture (gl_texture_slot_enums[0]);
+                block_index = GPOINTER_TO_UINT (
+                    g_hash_table_lookup (
+                        gl_shader->uniform_blocks,
+                        GUINT_TO_POINTER (uniform->location)));
+                g_assert (block_index > 0);
 
-            textures++;
-          }
-          break;
-        case CG_TYPE_BUFFER:
-          {
-            guint block_index = 0;
-            CglBuffer *gl_buffer = (CglBuffer *)value->buffer;
+                glUniformBlockBinding (gl_shader->program, block_index - 1, 0);
+                glBindBufferBase (GL_UNIFORM_BUFFER, 0, teardown ? 0 : gl_buffer->ubo_id);
+              }
+              break;
+            case CG_TYPE_BOOL:
+              if (!teardown)
+                glUniform1i (uniform->location, value->b ? GL_TRUE : GL_FALSE);
+              break;
+            case CG_TYPE_INT:
+              if (!teardown)
+                glUniform1i (uniform->location, value->i);
+              break;
+            case CG_TYPE_UINT:
+              if (!teardown)
+                glUniform1ui (uniform->location, value->ui);
+              break;
+            case CG_TYPE_FLOAT:
+              if (!teardown)
+                glUniform1f (uniform->location, value->f);
+              break;
+            case CG_TYPE_VEC2:
+              if (!teardown)
+                glUniform2fv (uniform->location, 1, value->vec2);
+              break;
+            case CG_TYPE_VEC3:
+              if (!teardown)
+                glUniform3fv (uniform->location, 1, value->vec3);
+              break;
+            case CG_TYPE_VEC4:
+              if (!teardown)
+                glUniform4fv (uniform->location, 1, value->vec4);
+              break;
+            case CG_TYPE_MAT4:
+              if (!teardown)
+                glUniformMatrix4fv (uniform->location, 1, GL_FALSE, value->mat4.initialized);
+              break;
+            default:
+              g_assert_not_reached ();
+            }
+        }
 
-            block_index = GPOINTER_TO_UINT (
-                g_hash_table_lookup (
-                    gl_shader->uniform_blocks,
-                    GUINT_TO_POINTER (uniform->location)));
-            g_assert (block_index > 0);
-
-            glUniformBlockBinding (gl_shader->program, block_index - 1, 0);
-            glBindBufferBase (GL_UNIFORM_BUFFER, 0, teardown ? 0 : gl_buffer->ubo_id);
-          }
-          break;
-        case CG_TYPE_BOOL:
-          if (!teardown)
-            glUniform1i (uniform->location, value->b ? GL_TRUE : GL_FALSE);
-          break;
-        case CG_TYPE_INT:
-          if (!teardown)
-            glUniform1i (uniform->location, value->i);
-          break;
-        case CG_TYPE_UINT:
-          if (!teardown)
-            glUniform1ui (uniform->location, value->ui);
-          break;
-        case CG_TYPE_FLOAT:
-          if (!teardown)
-            glUniform1f (uniform->location, value->f);
-          break;
-        case CG_TYPE_VEC2:
-          if (!teardown)
-            glUniform2fv (uniform->location, 1, value->vec2);
-          break;
-        case CG_TYPE_VEC3:
-          if (!teardown)
-            glUniform3fv (uniform->location, 1, value->vec3);
-          break;
-        case CG_TYPE_VEC4:
-          if (!teardown)
-            glUniform4fv (uniform->location, 1, value->vec4);
-          break;
-        case CG_TYPE_MAT4:
-          if (!teardown)
-            glUniformMatrix4fv (uniform->location, 1, GL_FALSE, value->mat4.initialized);
-          break;
-        default:
-          g_assert_not_reached ();
+      if (initial)
+        {
+          glClearColor (0, 0, 0, 0);
+          glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         }
     }
 
@@ -1883,6 +1942,7 @@ process_instr_node (GNode *node,
   CgCommands *commands = data->commands;
   CglGpu *gl_gpu = (CglGpu *)commands->gpu;
   CgPrivInstr *pass_instr = NULL;
+  CgPrivInstr *parent_pass = NULL;
   GLuint framebuffer = 0;
   GLuint blit_read_fb = 0;
   GLuint blit_draw_fb = 0;
@@ -1890,12 +1950,12 @@ process_instr_node (GNode *node,
   CglShader *gl_shader = NULL;
 
   if (instr->type == CG_PRIV_INSTR_PASS)
-    return FALSE;
-
-  g_assert (node->parent != NULL);
-  pass_instr = node->parent->data;
-  shader = pass_instr->pass.shader;
-  gl_shader = (CglShader *)shader;
+    pass_instr = instr;
+  else
+    {
+      g_assert (node->parent != NULL);
+      pass_instr = node->parent->data;
+    }
 
   if (pass_instr->pass.targets->len == 0)
     framebuffer = data->framebuffer;
@@ -1905,10 +1965,18 @@ process_instr_node (GNode *node,
   blit_read_fb = g_array_index (gl_gpu->framebuffer_stack, GLuint, pass_instr->depth + 1);
   blit_draw_fb = g_array_index (gl_gpu->framebuffer_stack, GLuint, pass_instr->depth + 2);
 
+  if (instr->type == CG_PRIV_INSTR_PASS)
+    return !setup_or_teardown (
+        framebuffer, blit_read_fb, blit_draw_fb,
+        pass_instr, data, TRUE, FALSE);
+
+  shader = pass_instr->pass.shader;
+  gl_shader = (CglShader *)shader;
+
   if (node->prev == NULL
       && !setup_or_teardown (
           framebuffer, blit_read_fb, blit_draw_fb,
-          instr, pass_instr, data, FALSE))
+          pass_instr, data, FALSE, FALSE))
     return TRUE;
 
   if (node->prev != NULL
@@ -1987,7 +2055,7 @@ process_instr_node (GNode *node,
   if (node->next == NULL
       && !setup_or_teardown (
           framebuffer, blit_read_fb, blit_draw_fb,
-          instr, pass_instr, data, TRUE))
+          pass_instr, data, FALSE, TRUE))
     return TRUE;
 
   return FALSE;

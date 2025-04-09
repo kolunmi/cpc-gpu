@@ -126,6 +126,13 @@ void cg_priv_finish (CgGpu *self);
   G_STMT_END
 #define CG_PRIV_DATA_LOCK_BIT 30
 
+typedef struct
+{
+  CgTexture *texture;
+  int src_blend;
+  int dst_blend;
+} CgPrivTarget;
+
 enum
 {
   CG_PRIV_INSTR_PASS = 0,
@@ -143,13 +150,14 @@ typedef struct
     struct
     {
       CgShader *shader;
-      GPtrArray *targets;
+      GArray *targets;
       GHashTable *attributes;
       struct
       {
         GHashTable *hash;
         GPtrArray *order;
       } uniforms;
+      gboolean fake; /* means depth is the same as parent's */
       int dest[4];
       guint32 write_mask;
       int depth_test_func;
@@ -253,15 +261,9 @@ CgValue *cg_priv_transfer_value_from_static_foreign (
 void cg_priv_clear_value (CgValue *self);
 void cg_priv_destroy_value (gpointer data);
 
-static inline void
-clear_data_layout (CgDataSegment *layout,
-                   guint length)
-{
-  if (layout == NULL)
-    return;
+void cg_priv_clear_target (gpointer data);
 
-  for (guint i = 0; i < length; i++)
-    g_free (layout[i].name);
-}
+void cg_priv_clear_data_layout (CgDataSegment *layout,
+                                guint length);
 
 G_END_DECLS
