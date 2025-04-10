@@ -37,6 +37,9 @@ static const char *type_names[CG_N_TYPES] = {
   ADD_TYPE (MAT4),
   ADD_TYPE (RECT),
   ADD_TYPE (KEYVAL),
+  ADD_TYPE (TUPLE2),
+  ADD_TYPE (TUPLE3),
+  ADD_TYPE (TUPLE4),
 #undef ADD_TYPE
 };
 
