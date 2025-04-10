@@ -30,7 +30,7 @@ cpc_gpu_headers = [
 
 cpc_gpu_c_args = [
   project_c_args,
-  '-DG_LOG_DOMAIN="CpcGpu"',
+  # '-DG_LOG_DOMAIN="CpcGpu"',
   '-DCPC_GPU_COMPILATION',
 ]
 cpc_gpu_deps = [dependency('glib-2.0')]

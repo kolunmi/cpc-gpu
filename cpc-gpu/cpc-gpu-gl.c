@@ -397,7 +397,7 @@ clear_gpu (CgGpu *self)
 
   /* TODO could be the wrong thread? */
   glDeleteFramebuffers (gl_gpu->framebuffer_stack->len,
-                        (GLuint *)gl_gpu->framebuffer_stack->data);
+                        (GLuint *)(gpointer)gl_gpu->framebuffer_stack->data);
   g_clear_pointer (&gl_gpu->framebuffer_stack, g_array_unref);
   g_clear_pointer (&gl_gpu->destroyed_objects, g_array_unref);
 }
@@ -775,7 +775,7 @@ ensure_shader (CgShader *self,
     }
 
   gl_shader->n_uniforms = uniforms->len;
-  gl_shader->uniforms = (ShaderLocation *)g_array_free (g_steal_pointer (&uniforms), FALSE);
+  gl_shader->uniforms = (ShaderLocation *)(gpointer)g_array_free (g_steal_pointer (&uniforms), FALSE);
 
   /* --- Uniform Blocks --- */
   glGetProgramiv (program, GL_ACTIVE_UNIFORM_BLOCKS, &n_uniform_blocks);
@@ -1942,7 +1942,6 @@ process_instr_node (GNode *node,
   CgCommands *commands = data->commands;
   CglGpu *gl_gpu = (CglGpu *)commands->gpu;
   CgPrivInstr *pass_instr = NULL;
-  CgPrivInstr *parent_pass = NULL;
   GLuint framebuffer = 0;
   GLuint blit_read_fb = 0;
   GLuint blit_draw_fb = 0;
