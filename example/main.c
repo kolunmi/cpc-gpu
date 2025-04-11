@@ -259,13 +259,21 @@ render (GtkGLArea *area,
   if (!cg_commands_dispatch (commands, &local_error))
     goto err;
 
+  cg_gpu_release_this_thread (gpu);
   return TRUE;
 
 err:
   if (local_error != NULL)
     gtk_gl_area_set_error (area, local_error);
 
+  cg_gpu_release_this_thread (gpu);
   return FALSE;
+}
+
+static void
+timeout (GtkGLArea *gl_area)
+{
+  gtk_gl_area_queue_render (gl_area);
 }
 
 static void
@@ -307,6 +315,11 @@ realize (GtkGLArea *area,
 done:
   if (local_error != NULL)
     gtk_gl_area_set_error (area, local_error);
+
+  cg_gpu_release_this_thread (gpu);
+
+  timeout_source = g_timeout_add ((1.0 / fps) * G_TIME_SPAN_MILLISECOND, (GSourceFunc)timeout, area);
+  timer = g_timer_new ();
 }
 
 static void
@@ -319,9 +332,11 @@ unrealize (GtkGLArea *area,
   g_clear_pointer (&tmp_target, cg_texture_unref);
   g_clear_pointer (&tmp_depth, cg_texture_unref);
   g_clear_pointer (&shader, cg_shader_unref);
-
-  cg_gpu_release_this_thread (gpu);
   g_clear_pointer (&gpu, cg_gpu_unref);
+
+  if (timeout_source > 0)
+    g_source_remove (timeout_source);
+  g_clear_pointer (&timer, g_timer_destroy);
 }
 
 static void
@@ -364,12 +379,6 @@ depth_value_changed (GtkAdjustment *adjustment,
 }
 
 static void
-timeout (GtkGLArea *gl_area)
-{
-  gtk_gl_area_queue_render (gl_area);
-}
-
-static void
 fps_changed (GtkAdjustment *adjustment,
              GParamSpec *pspec,
              GtkGLArea *gl_area)
@@ -380,9 +389,7 @@ fps_changed (GtkAdjustment *adjustment,
   if (fps < 1.0)
     timeout_source = 0;
   else
-    timeout_source = g_timeout_add ((1.0 / (double)fps)
-                                        * G_TIME_SPAN_MILLISECOND,
-                                    (GSourceFunc)timeout, gl_area);
+    timeout_source = g_timeout_add ((1.0 / fps) * G_TIME_SPAN_MILLISECOND, (GSourceFunc)timeout, gl_area);
 }
 
 static char *
@@ -458,10 +465,6 @@ on_activate (GtkApplication *app)
   gtk_window_set_child (GTK_WINDOW (window), box);
 
   gtk_window_present (GTK_WINDOW (window));
-
-  timeout_source = g_timeout_add ((double)(1.0 / fps) * G_TIME_SPAN_MILLISECOND,
-                                  (GSourceFunc)timeout, gl_area);
-  timer = g_timer_new ();
 }
 
 int
