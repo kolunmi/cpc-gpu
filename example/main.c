@@ -14,11 +14,14 @@
   "out vec2 fragTexCoord;\n"                                            \
   "uniform mat4 mvp;\n"                                                 \
   "uniform mat4 normal;\n"                                              \
+  "uniform mat4 rotation;\n"                                            \
   "void main()\n"                                                       \
   "{\n"                                                                 \
-  "    gl_Position = mvp*vec4(vertexPosition+instanceOffset, 1.0);\n"   \
+  "    vec3 rotated = vec3(rotation*vec4(vertexPosition, 1.0));\n"      \
+  "    gl_Position = mvp*vec4(rotated+instanceOffset, 1.0);\n"          \
+  "    vec3 rotatedNormal = vec3(rotation*vec4(vertexNormal, 1.0));\n"  \
   "    fragColor = vec4(vec3(max(dot(normalize(vec3(1.0, 2.0, -2.0)), " \
-  "normalize(vec3(normal*vec4(vertexNormal, 1.0)))), 0.1)), 1.0);\n"    \
+  "normalize(vec3(normal*vec4(rotatedNormal, 1.0)))), 0.1)), 1.0);\n"   \
   "    fragTexCoord = vertexTexCoord;\n"                                \
   "}\n"
 
@@ -111,6 +114,9 @@ static gboolean icon_has_alpha = FALSE;
 static gsize icon_data_size = 0;
 static gpointer icon_data = NULL;
 
+static guint timeout_source = 0;
+static GTimer *timer = NULL;
+
 static CgGpu *gpu = NULL;
 static CgShader *shader = NULL;
 static CgTexture *tmp_target = NULL;
@@ -119,10 +125,12 @@ static CgBuffer *cube_vertices = NULL;
 static CgBuffer *offsets = NULL;
 static CgTexture *icon = NULL;
 
-static float cube_rotation = 180.0;
-static int width = 2;
-static int height = 2;
-static int depth = 2;
+static float main_rotation = 180.0;
+static int width = 3;
+static int height = 3;
+static int depth = 3;
+static double fps = 60.0;
+static float cube_rotation_mult = 90.0;
 
 static gboolean
 render (GtkGLArea *area,
@@ -143,6 +151,8 @@ render (GtkGLArea *area,
   graphene_matrix_t mvp = { 0 };
   float mvp_arr[16] = { 0 };
   float normal_arr[16] = { 0 };
+  graphene_matrix_t rotation = { 0 };
+  float rot_arr[16] = { 0 };
   g_autoptr (CgPlan) plan = NULL;
   g_autoptr (CgCommands) commands = NULL;
 
@@ -154,7 +164,7 @@ render (GtkGLArea *area,
   graphene_matrix_init_perspective (&projection, 60.0, (float)screen_width / (float)screen_height, 0.01, 500.0);
 
   graphene_matrix_init_identity (&transform);
-  graphene_matrix_rotate (&transform, cube_rotation, graphene_vec3_y_axis ());
+  graphene_matrix_rotate (&transform, main_rotation, graphene_vec3_y_axis ());
   graphene_matrix_rotate (&transform, -25.0, graphene_vec3_x_axis ());
   graphene_matrix_translate (&transform, &GRAPHENE_POINT3D_INIT (0, 0, MAX (MAX (MAX (width, height), depth) * 4.0, 10.0)));
 
@@ -165,6 +175,9 @@ render (GtkGLArea *area,
   graphene_matrix_inverse (&transform, &tmp);
   graphene_matrix_transpose (&tmp, &normal);
   graphene_matrix_to_float (&normal, normal_arr);
+
+  graphene_matrix_init_rotate (&rotation, g_timer_elapsed (timer, NULL) * cube_rotation_mult, graphene_vec3_x_axis ());
+  graphene_matrix_to_float (&rotation, rot_arr);
 
   cg_gpu_steal_this_thread (gpu);
 
@@ -229,6 +242,7 @@ render (GtkGLArea *area,
       CG_STATE_TARGET, CG_TEXTURE (tmp_depth),
       CG_STATE_UNIFORM, CG_KEYVAL ("mvp", CG_MAT4 (mvp_arr)),
       CG_STATE_UNIFORM, CG_KEYVAL ("normal", CG_MAT4 (normal_arr)),
+      CG_STATE_UNIFORM, CG_KEYVAL ("rotation", CG_MAT4 (rot_arr)),
       CG_STATE_UNIFORM, CG_KEYVAL ("texture0", CG_TEXTURE (icon)),
       CG_STATE_UNIFORM, CG_KEYVAL ("colDiffuse", CG_VEC4 (1.0, 1.0, 1.0, 1.0)),
       NULL);
@@ -315,7 +329,7 @@ rotation_value_changed (GtkAdjustment *adjustment,
                         GParamSpec *pspec,
                         GtkGLArea *gl_area)
 {
-  cube_rotation = gtk_adjustment_get_value (adjustment);
+  main_rotation = gtk_adjustment_get_value (adjustment);
   gtk_gl_area_queue_render (gl_area);
 }
 
@@ -350,6 +364,36 @@ depth_value_changed (GtkAdjustment *adjustment,
 }
 
 static void
+timeout (GtkGLArea *gl_area)
+{
+  gtk_gl_area_queue_render (gl_area);
+}
+
+static void
+fps_changed (GtkAdjustment *adjustment,
+             GParamSpec *pspec,
+             GtkGLArea *gl_area)
+{
+  if (timeout_source > 0)
+    g_source_remove (timeout_source);
+  fps = gtk_adjustment_get_value (adjustment);
+  if (fps < 1.0)
+    timeout_source = 0;
+  else
+    timeout_source = g_timeout_add ((1.0 / (double)fps)
+                                        * G_TIME_SPAN_MILLISECOND,
+                                    (GSourceFunc)timeout, gl_area);
+}
+
+static char *
+scale_format (GtkScale *scale,
+              double value,
+              const char *prefix)
+{
+  return g_strdup_printf ("%s: %.0f", prefix, value);
+}
+
+static void
 on_activate (GtkApplication *app)
 {
   GtkWidget *window = NULL;
@@ -362,28 +406,44 @@ on_activate (GtkApplication *app)
   box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 10);
   window = gtk_application_window_new (app);
 
-  adjustment = gtk_adjustment_new (cube_rotation, 0, 360, 1, 10, 0);
+  adjustment = gtk_adjustment_new (main_rotation, 0, 360, 1, 10, 0);
   g_signal_connect (adjustment, "notify::value",
                     G_CALLBACK (rotation_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
+  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Rotation", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (width, 1, 32, 1, 2, 0);
   g_signal_connect (adjustment, "notify::value",
                     G_CALLBACK (width_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
+  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Width", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (height, 1, 32, 1, 2, 0);
   g_signal_connect (adjustment, "notify::value",
                     G_CALLBACK (height_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
+  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Height", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (depth, 1, 32, 1, 2, 0);
   g_signal_connect (adjustment, "notify::value",
                     G_CALLBACK (depth_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
+  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Depth", NULL);
+  gtk_box_append (GTK_BOX (box), scale);
+
+  adjustment = gtk_adjustment_new (fps, 0, 160, 1, 10, 0);
+  g_signal_connect (adjustment, "notify::value",
+                    G_CALLBACK (fps_changed), gl_area);
+  scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
+  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Idle FPS", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   gtk_widget_set_hexpand (gl_area, TRUE);
@@ -394,10 +454,14 @@ on_activate (GtkApplication *app)
   g_signal_connect (gl_area, "render", G_CALLBACK (render), NULL);
   gtk_box_append (GTK_BOX (box), gl_area);
 
-  gtk_window_set_default_size (GTK_WINDOW (window), 1000, 600);
+  gtk_window_set_default_size (GTK_WINDOW (window), 1500, 600);
   gtk_window_set_child (GTK_WINDOW (window), box);
 
   gtk_window_present (GTK_WINDOW (window));
+
+  timeout_source = g_timeout_add ((double)(1.0 / fps) * G_TIME_SPAN_MILLISECOND,
+                                  (GSourceFunc)timeout, gl_area);
+  timer = g_timer_new ();
 }
 
 int
