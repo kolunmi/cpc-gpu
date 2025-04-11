@@ -266,16 +266,9 @@ enum
   CG_WRITE_MASK_COLOR_ALPHA = 1 << 3, /*!< Alpha Transparency */
   CG_WRITE_MASK_DEPTH = 1 << 4,       /*!< Depth Component */
 
-  CG_WRITE_MASK_ALL = CG_WRITE_MASK_COLOR_RED
-                      | CG_WRITE_MASK_COLOR_GREEN
-                      | CG_WRITE_MASK_COLOR_BLUE
-                      | CG_WRITE_MASK_COLOR_ALPHA
-                      | CG_WRITE_MASK_DEPTH, /*!< All Components */
-
-  CG_WRITE_MASK_COLOR = CG_WRITE_MASK_COLOR_RED
-                        | CG_WRITE_MASK_COLOR_GREEN
-                        | CG_WRITE_MASK_COLOR_BLUE
-                        | CG_WRITE_MASK_COLOR_ALPHA, /*!< Just color, no depth */
+  CG_WRITE_MASK_RGB = CG_WRITE_MASK_COLOR_RED | CG_WRITE_MASK_COLOR_GREEN | CG_WRITE_MASK_COLOR_BLUE, /*!< Just rgb, no alpha or depth */
+  CG_WRITE_MASK_COLOR = CG_WRITE_MASK_RGB | CG_WRITE_MASK_COLOR_ALPHA,                                /*!< Just color, no depth */
+  CG_WRITE_MASK_ALL = CG_WRITE_MASK_COLOR | CG_WRITE_MASK_DEPTH,                                      /*!< All Components */
 };
 
 /*! @brief Basic numerical test functions.
@@ -339,21 +332,26 @@ enum
 {
   CG_STATE_0 = 0, /*!< DO NOT USE */
 
-  CG_STATE_TARGET,     /*!< Add a render target;
-                            of type: @a CG_TYPE_TEXTURE
-                            or type: @a CG_TYPE_TUPLE3 { @a CG_TYPE_TEXTURE ,
-                                                         @a CG_TYPE_INT (src blend) ,
-                                                         @a CG_TYPE_INT (dest blend) } */
-  CG_STATE_SHADER,     /*!< Set the shader;
-                            of type: @a CG_TYPE_SHADER */
-  CG_STATE_UNIFORM,    /*!< Set a uniform;
-                            of type: @a CG_TYPE_KEYVAL */
-  CG_STATE_DEST,       /*!< Set the viewport;
-                            of type: @a CG_TYPE_RECT */
-  CG_STATE_WRITE_MASK, /*!< Set the write mask;
-                            of type: @a CG_TYPE_UINT */
-  CG_STATE_DEPTH_FUNC, /*!< Set the depth comparison func;
-                            of type: @a CG_TYPE_INT */
+  CG_STATE_TARGET,          /*!< Add a render target;
+                                 | of type: @a CG_TYPE_TEXTURE
+                                 | or type: @a CG_TYPE_TUPLE3 { @a CG_TYPE_TEXTURE ,
+                                 |                              @a CG_TYPE_INT (src blend) ,
+                                 |                              @a CG_TYPE_INT (dest blend) } */
+  CG_STATE_SHADER,          /*!< Set the shader;
+                                 | of type: @a CG_TYPE_SHADER */
+  CG_STATE_UNIFORM,         /*!< Set a uniform;
+                                 | of type: @a CG_TYPE_KEYVAL */
+  CG_STATE_DEST,            /*!< Set the viewport;
+                                 | of type: @a CG_TYPE_RECT */
+  CG_STATE_WRITE_MASK,      /*!< Set the write mask;
+                                 | of type: @a CG_TYPE_UINT */
+  CG_STATE_DEPTH_FUNC,      /*!< Set the depth comparison func;
+                                 | of type: @a CG_TYPE_INT */
+  CG_STATE_CLOCKWISE_FACES, /*!< If TRUE, triangle front-faces will be determined
+                                 using clockwise winding instead of counter-clockwise;
+                                 | of type: @a CG_TYPE_BOOL */
+  CG_STATE_BACKFACE_CULL,   /*!< Set whether to cull backfaces faces;
+                                 | of type: @a CG_TYPE_BOOL */
 
   CG_N_STATES /*!< DO NOT USE */
 };
@@ -1038,7 +1036,7 @@ void cg_plan_config_write_mask (
     guint32 mask);
 
 /*! @brief Override the depth test func for
- *         group's child render passes.
+ *         the group's child render passes.
  *
  * @param [in] self The plan object.
  * @param [in] func The test func enum.
@@ -1050,6 +1048,35 @@ CPC_GPU_AVAILABLE_IN_ALL
 void cg_plan_config_depth_test_func (
     CgPlan *self,
     int func);
+
+/*! @brief Set whether to use clockwise winding
+ *         to determine winding for the group's
+ *         child render passes.
+ *
+ * @param [in] self The plan object.
+ * @param [in] clockwise Whether to use clockwise winding.
+ *
+ * @memberof CgPlan
+ *
+ */
+CPC_GPU_AVAILABLE_IN_ALL
+void cg_plan_config_clockwise_faces (
+    CgPlan *self,
+    gboolean clockwise);
+
+/*! @brief Set whether to backface cull for
+ *         the group's child render passes.
+ *
+ * @param [in] self The plan object.
+ * @param [in] cull Whether to cull backfaces.
+ *
+ * @memberof CgPlan
+ *
+ */
+CPC_GPU_AVAILABLE_IN_ALL
+void cg_plan_config_backface_cull (
+    CgPlan *self,
+    gboolean cull);
 
 /*! @brief End configuration for and
  *         activate the next child group.

@@ -161,6 +161,16 @@ typedef struct
       int dest[4];
       guint32 write_mask;
       int depth_test_func;
+      struct
+      {
+        gboolean val;
+        gboolean set;
+      } clockwise_faces;
+      struct
+      {
+        gboolean val;
+        gboolean set;
+      } backface_cull;
     } pass;
 
     struct

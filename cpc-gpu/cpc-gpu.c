@@ -663,6 +663,7 @@ cg_plan_begin_config (CgPlan *self)
   instr = CG_PRIV_CREATE (instr);
   instr->depth = self->cur_instr != NULL ? ((CgPrivInstr *)self->cur_instr->data)->depth + 1 : 0;
   instr->type = CG_PRIV_INSTR_PASS;
+
   instr->pass.targets = g_array_new (FALSE, TRUE, sizeof (CgPrivTarget));
   g_array_set_clear_func (instr->pass.targets, cg_priv_clear_target);
   instr->pass.uniforms.hash = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, cg_priv_destroy_value);
@@ -671,6 +672,10 @@ cg_plan_begin_config (CgPlan *self)
   instr->pass.write_mask = 0;
   instr->pass.depth_test_func = CG_TEST_FUNC_0;
   instr->pass.dest[0] = -1;
+  instr->pass.clockwise_faces.val = FALSE;
+  instr->pass.clockwise_faces.set = FALSE;
+  instr->pass.backface_cull.val = TRUE;
+  instr->pass.backface_cull.set = FALSE;
 
   self->configuring = instr;
 }
@@ -897,11 +902,34 @@ cg_plan_config_depth_test_func (
 }
 
 void
+cg_plan_config_clockwise_faces (
+    CgPlan *self,
+    gboolean clockwise)
+{
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (self->configuring != NULL);
+
+  self->configuring->pass.clockwise_faces.val = clockwise;
+  self->configuring->pass.clockwise_faces.set = TRUE;
+}
+
+void
+cg_plan_config_backface_cull (
+    CgPlan *self,
+    gboolean cull)
+{
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (self->configuring != NULL);
+
+  self->configuring->pass.backface_cull.val = cull;
+  self->configuring->pass.backface_cull.set = TRUE;
+}
+
+void
 cg_plan_push_group (CgPlan *self)
 {
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring != NULL);
-  g_assert (self->configuring->type == CG_PRIV_INSTR_PASS);
 
   if (self->cur_instr != NULL)
     {
@@ -935,6 +963,12 @@ cg_plan_push_group (CgPlan *self)
 
       if (self->configuring->pass.depth_test_func == 0)
         self->configuring->pass.depth_test_func = parent_pass->pass.depth_test_func;
+
+      if (!self->configuring->pass.clockwise_faces.set)
+        self->configuring->pass.clockwise_faces.val = parent_pass->pass.clockwise_faces.val;
+
+      if (!self->configuring->pass.backface_cull.set)
+        self->configuring->pass.backface_cull.val = parent_pass->pass.backface_cull.val;
 
       self->cur_instr = g_node_append_data (
           self->cur_instr,
@@ -977,6 +1011,22 @@ set_depth_test_func_from_value (CgPlan *self,
 {
   g_return_if_fail (value->type == CG_TYPE_INT);
   cg_plan_config_depth_test_func (self, value->i);
+}
+
+static void
+set_clockwise_faces_from_value (CgPlan *self,
+                                const CgValue *value)
+{
+  g_return_if_fail (value->type == CG_TYPE_BOOL);
+  cg_plan_config_clockwise_faces (self, value->b);
+}
+
+static void
+set_backface_cull_from_value (CgPlan *self,
+                              const CgValue *value)
+{
+  g_return_if_fail (value->type == CG_TYPE_BOOL);
+  cg_plan_config_backface_cull (self, value->b);
 }
 
 void
@@ -1027,6 +1077,12 @@ cg_plan_push_state (
           break;
         case CG_STATE_DEPTH_FUNC:
           set_depth_test_func_from_value (self, value);
+          break;
+        case CG_STATE_CLOCKWISE_FACES:
+          set_clockwise_faces_from_value (self, value);
+          break;
+        case CG_STATE_BACKFACE_CULL:
+          set_backface_cull_from_value (self, value);
           break;
         default:
           CG_PRIV_CRITICAL ("%d is not a recognized state enum.", key);

@@ -305,8 +305,10 @@ debug_cb (GLenum source,
 }
 
 static void
-clear_destroyed_object (DestroyedObject *self)
+clear_destroyed_object (gpointer ptr)
 {
+  DestroyedObject *self = ptr;
+
   switch (self->type)
     {
     case OBJECT_SHADER:
@@ -376,7 +378,7 @@ gpu_new (guint32 flags,
 
   gl_gpu->framebuffer_stack = g_array_new (FALSE, TRUE, sizeof (GLuint));
   gl_gpu->destroyed_objects = g_array_new (FALSE, TRUE, sizeof (DestroyedObject));
-  g_array_set_clear_func (gl_gpu->destroyed_objects, (GDestroyNotify)clear_destroyed_object);
+  g_array_set_clear_func (gl_gpu->destroyed_objects, clear_destroyed_object);
 
   return g_steal_pointer (&gpu);
 }
@@ -1550,7 +1552,7 @@ static gboolean
 setup_or_teardown (GLuint framebuffer,
                    GLuint blit_read_fb,
                    GLuint blit_draw_fb,
-                   CgPrivInstr *pass_instr,
+                   CgPrivInstr *instr,
                    ProcessData *data,
                    gboolean initial,
                    gboolean teardown)
@@ -1558,41 +1560,53 @@ setup_or_teardown (GLuint framebuffer,
   CgShader *shader = NULL;
   CglShader *gl_shader = NULL;
 
-  shader = pass_instr->pass.shader;
+  g_assert (instr->type == CG_PRIV_INSTR_PASS);
+
+  shader = instr->pass.shader;
   gl_shader = (CglShader *)shader;
 
-  if (!teardown && (!pass_instr->pass.fake || !initial))
+  if (!teardown && (!instr->pass.fake || !initial))
     {
       glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
       glUseProgram (gl_shader->program);
     }
 
   glViewport (
-      pass_instr->pass.dest[0],
-      pass_instr->pass.dest[1],
-      pass_instr->pass.dest[2],
-      pass_instr->pass.dest[3]);
-  glColorMask (
-      pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_RED ? GL_TRUE : GL_FALSE,
-      pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_GREEN ? GL_TRUE : GL_FALSE,
-      pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_BLUE ? GL_TRUE : GL_FALSE,
-      pass_instr->pass.write_mask & CG_WRITE_MASK_COLOR_ALPHA ? GL_TRUE : GL_FALSE);
-  glDepthMask (pass_instr->pass.write_mask & CG_WRITE_MASK_DEPTH ? GL_TRUE : GL_FALSE);
-  if (pass_instr->pass.depth_test_func > 0)
-    glDepthFunc (test_func_map[pass_instr->pass.depth_test_func]);
+      instr->pass.dest[0],
+      instr->pass.dest[1],
+      instr->pass.dest[2],
+      instr->pass.dest[3]);
 
-  if (!pass_instr->pass.fake && (initial || teardown))
+  glColorMask (
+      instr->pass.write_mask & CG_WRITE_MASK_COLOR_RED ? GL_TRUE : GL_FALSE,
+      instr->pass.write_mask & CG_WRITE_MASK_COLOR_GREEN ? GL_TRUE : GL_FALSE,
+      instr->pass.write_mask & CG_WRITE_MASK_COLOR_BLUE ? GL_TRUE : GL_FALSE,
+      instr->pass.write_mask & CG_WRITE_MASK_COLOR_ALPHA ? GL_TRUE : GL_FALSE);
+
+  glDepthMask (instr->pass.write_mask & CG_WRITE_MASK_DEPTH ? GL_TRUE : GL_FALSE);
+
+  if (instr->pass.depth_test_func > 0)
+    glDepthFunc (test_func_map[instr->pass.depth_test_func]);
+
+  glFrontFace (instr->pass.clockwise_faces.val ? GL_CW : GL_CCW);
+
+  if (instr->pass.backface_cull.val)
+    glEnable (GL_CULL_FACE);
+  else
+    glDisable (GL_CULL_FACE);
+
+  if (!instr->pass.fake && (initial || teardown))
     {
       gboolean has_depth = TRUE;
 
       for (guint i = 0, colors = 0, depths = 0;
-           i < pass_instr->pass.targets->len;
+           i < instr->pass.targets->len;
            i++)
         {
           CgPrivTarget *target = NULL;
           CglTexture *gl_target = NULL;
 
-          target = &g_array_index (pass_instr->pass.targets, CgPrivTarget, i);
+          target = &g_array_index (instr->pass.targets, CgPrivTarget, i);
           gl_target = (CglTexture *)target->texture;
 
           if (target->texture->init.format == CG_PRIV_FORMAT_DEPTH)
@@ -1644,7 +1658,7 @@ setup_or_teardown (GLuint framebuffer,
           GLenum status = 0;
 
           glDrawBuffers (
-              CLAMP (pass_instr->pass.targets->len, 1, G_N_ELEMENTS (gl_draw_buffer_enums)),
+              CLAMP (instr->pass.targets->len, 1, G_N_ELEMENTS (gl_draw_buffer_enums)),
               gl_draw_buffer_enums);
 
           status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
@@ -1660,7 +1674,7 @@ setup_or_teardown (GLuint framebuffer,
         }
 
       for (guint i = 0, textures = 0;
-           i < pass_instr->pass.uniforms.order->len;
+           i < instr->pass.uniforms.order->len;
            i++)
         {
           const char *name = NULL;
@@ -1668,8 +1682,8 @@ setup_or_teardown (GLuint framebuffer,
           guint uniform_index = 0;
           ShaderLocation *uniform = NULL;
 
-          name = g_ptr_array_index (pass_instr->pass.uniforms.order, i);
-          value = g_hash_table_lookup (pass_instr->pass.uniforms.hash, name);
+          name = g_ptr_array_index (instr->pass.uniforms.order, i);
+          value = g_hash_table_lookup (instr->pass.uniforms.hash, name);
 
           uniform_index = GPOINTER_TO_UINT (g_hash_table_lookup (gl_shader->uniform_assoc, name));
           g_assert (uniform_index > 0);
