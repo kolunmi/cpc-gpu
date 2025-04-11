@@ -32,7 +32,7 @@ G_BEGIN_DECLS
   G_STMT_START                                                    \
   {                                                               \
     CG_PRIV_CRITICAL ("A FATAL ERROR HAS OCCURED: " __VA_ARGS__); \
-    g_assert_not_reached ();                                      \
+    exit (1);                                                     \
   }                                                               \
   G_STMT_END
 
