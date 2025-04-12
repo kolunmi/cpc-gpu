@@ -4,38 +4,57 @@
 
 #include "pixbuf.h"
 
-#define VERTEX_SHADER                                                   \
-  "#version 330\n"                                                      \
-  "in vec3 vertexPosition;\n"                                           \
-  "in vec3 vertexNormal;\n"                                             \
-  "in vec2 vertexTexCoord;\n"                                           \
-  "in vec3 instanceOffset;\n"                                           \
-  "out vec4 fragColor;\n"                                               \
-  "out vec2 fragTexCoord;\n"                                            \
-  "uniform mat4 mvp;\n"                                                 \
-  "uniform mat4 normal;\n"                                              \
-  "uniform mat4 rotation;\n"                                            \
-  "void main()\n"                                                       \
-  "{\n"                                                                 \
-  "    vec3 rotated = vec3(rotation*vec4(vertexPosition, 1.0));\n"      \
-  "    gl_Position = mvp*vec4(rotated+instanceOffset, 1.0);\n"          \
-  "    vec3 rotatedNormal = vec3(rotation*vec4(vertexNormal, 1.0));\n"  \
-  "    fragColor = vec4(vec3(max(dot(normalize(vec3(1.0, 2.0, -2.0)), " \
-  "normalize(vec3(normal*vec4(rotatedNormal, 1.0)))), 0.1)), 1.0);\n"   \
-  "    fragTexCoord = vertexTexCoord;\n"                                \
+#define VERTEX_SHADER                                                      \
+  "#version 330\n"                                                         \
+  "in vec3 vertexPosition;\n"                                              \
+  "in vec3 vertexNormal;\n"                                                \
+  "in vec2 vertexTexCoord;\n"                                              \
+  "in vec3 instanceOffset;\n"                                              \
+  "out vec3 fragPosition;\n"                                               \
+  "out vec4 fragColor;\n"                                                  \
+  "out vec2 fragTexCoord;\n"                                               \
+  "uniform bool skybox;\n"                                                 \
+  "uniform mat4 projection;\n"                                             \
+  "uniform mat4 transform;\n"                                              \
+  "uniform mat4 mvp;\n"                                                    \
+  "uniform mat4 normal;\n"                                                 \
+  "uniform mat4 rotation;\n"                                               \
+  "void main()\n"                                                          \
+  "{\n"                                                                    \
+  "    if (skybox) {\n"                                                    \
+  "        mat4 rotModel = mat4(mat3(transform));\n"                       \
+  "        gl_Position = projection*rotModel*vec4(vertexPosition, 1.0);\n" \
+  "        fragColor = vec4(1.0);\n"                                       \
+  "    } else {\n"                                                         \
+  "        vec3 rotated = vec3(rotation*vec4(vertexPosition, 1.0));\n"     \
+  "        gl_Position = mvp*vec4(rotated+instanceOffset, 1.0);\n"         \
+  "        vec3 rotatedNormal = vec3(rotation*vec4(vertexNormal, 1.0));\n" \
+  "        fragColor = vec4(vec3(max(dot(normalize(vec3(2.0, 1.0, 2.0)), " \
+  "normalize(vec3(normal*vec4(rotatedNormal, 1.0)))), 0.1)), 1.0);\n"      \
+  "    }\n"                                                                \
+  "    fragTexCoord = vertexTexCoord;\n"                                   \
+  "    fragPosition = vertexPosition;\n"                                   \
   "}\n"
 
-#define FRAGMENT_SHADER                                      \
-  "#version 330\n"                                           \
-  "in vec4 fragColor;\n"                                     \
-  "in vec2 fragTexCoord;\n"                                  \
-  "out vec4 finalColor;\n"                                   \
-  "uniform sampler2D texture0;\n"                            \
-  "uniform vec4 colDiffuse;\n"                               \
-  "void main()\n"                                            \
-  "{\n"                                                      \
-  "    vec4 texelColor = texture(texture0, fragTexCoord);\n" \
-  "    finalColor = texelColor*colDiffuse*fragColor;\n"      \
+#define FRAGMENT_SHADER                                               \
+  "#version 330\n"                                                    \
+  "in vec3 fragPosition;\n"                                           \
+  "in vec4 fragColor;\n"                                              \
+  "in vec2 fragTexCoord;\n"                                           \
+  "out vec4 finalColor;\n"                                            \
+  "uniform bool skybox;\n"                                            \
+  "uniform sampler2D texture0;\n"                                     \
+  "uniform samplerCube environmentMap;\n"                             \
+  "uniform vec4 colDiffuse;\n"                                        \
+  "void main()\n"                                                     \
+  "{\n"                                                               \
+  "    if (skybox) {\n"                                               \
+  "        vec3 color = texture(environmentMap, fragPosition).rgb;\n" \
+  "        finalColor = vec4(color, 1.0);\n"                          \
+  "    } else {\n"                                                    \
+  "        vec4 texelColor = texture(texture0, fragTexCoord);\n"      \
+  "        finalColor = texelColor*colDiffuse*fragColor;\n"           \
+  "    }\n"                                                           \
   "}\n"
 
 static const float cube[] = {
@@ -108,11 +127,17 @@ static const CgDataSegment offset_layout[] = {
   },
 };
 
-static int icon_width = 0;
-static int icon_height = 0;
-static gboolean icon_has_alpha = FALSE;
-static gsize icon_data_size = 0;
-static gpointer icon_data = NULL;
+typedef struct
+{
+  int width;
+  int height;
+  gboolean has_alpha;
+  gsize data_size;
+  gpointer data;
+} Image;
+
+static Image icon_img = { 0 };
+static Image skybox_img = { 0 };
 
 static guint timeout_source = 0;
 static GTimer *timer = NULL;
@@ -124,13 +149,14 @@ static CgTexture *tmp_depth = NULL;
 static CgBuffer *cube_vertices = NULL;
 static CgBuffer *offsets = NULL;
 static CgTexture *icon = NULL;
+static CgTexture *skybox = NULL;
 
 static float main_rotation = 180.0;
 static int width = 3;
 static int height = 3;
 static int depth = 3;
 static double fps = 60.0;
-static float cube_rotation_mult = 90.0;
+static float cube_rotation_mult = 60.0;
 
 static gboolean
 render (GtkGLArea *area,
@@ -149,6 +175,8 @@ render (GtkGLArea *area,
   graphene_matrix_t normal = { 0 };
   graphene_matrix_t tmp = { 0 };
   graphene_matrix_t mvp = { 0 };
+  float projection_arr[16] = { 0 };
+  float transform_arr[16] = { 0 };
   float mvp_arr[16] = { 0 };
   float normal_arr[16] = { 0 };
   graphene_matrix_t rotation = { 0 };
@@ -159,14 +187,16 @@ render (GtkGLArea *area,
   screen_width = gtk_widget_get_width (GTK_WIDGET (area));
   screen_height = gtk_widget_get_height (GTK_WIDGET (area));
 
-  graphene_vec3_init (&eye, 0.0, 0.0, -1.0);
+  graphene_vec3_init (&eye, 0.0, 0.0, 1.0);
   graphene_matrix_init_look_at (&view, &eye, graphene_vec3_zero (), graphene_vec3_y_axis ());
-  graphene_matrix_init_perspective (&projection, 60.0, (float)screen_width / (float)screen_height, 0.01, 500.0);
+  graphene_matrix_init_perspective (&projection, 70.0, (float)screen_width / (float)screen_height, 0.01, 500.0);
+  graphene_matrix_to_float (&projection, projection_arr);
 
   graphene_matrix_init_identity (&transform);
   graphene_matrix_rotate (&transform, main_rotation, graphene_vec3_y_axis ());
-  graphene_matrix_rotate (&transform, -25.0, graphene_vec3_x_axis ());
-  graphene_matrix_translate (&transform, &GRAPHENE_POINT3D_INIT (0, 0, MAX (MAX (MAX (width, height), depth) * 4.0, 10.0)));
+  graphene_matrix_rotate (&transform, 5.0, graphene_vec3_x_axis ());
+  graphene_matrix_translate (&transform, &GRAPHENE_POINT3D_INIT (0, 0, -MAX (MAX (MAX (width, height), depth) * 6.0, -10.0)));
+  graphene_matrix_to_float (&transform, transform_arr);
 
   graphene_matrix_multiply (&transform, &view, &tmp);
   graphene_matrix_multiply (&tmp, &projection, &mvp);
@@ -176,7 +206,7 @@ render (GtkGLArea *area,
   graphene_matrix_transpose (&tmp, &normal);
   graphene_matrix_to_float (&normal, normal_arr);
 
-  graphene_matrix_init_rotate (&rotation, g_timer_elapsed (timer, NULL) * cube_rotation_mult, graphene_vec3_x_axis ());
+  graphene_matrix_init_rotate (&rotation, g_timer_elapsed (timer, NULL) * cube_rotation_mult, graphene_vec3_y_axis ());
   graphene_matrix_to_float (&rotation, rot_arr);
 
   cg_gpu_steal_this_thread (gpu);
@@ -231,22 +261,43 @@ render (GtkGLArea *area,
       plan,
       CG_STATE_DEST, CG_RECT (0, 0, screen_width, screen_height),
       CG_STATE_WRITE_MASK, CG_UINT (CG_WRITE_MASK_COLOR),
-      CG_STATE_SHADER, CG_SHADER (shader),
       NULL);
+
+  cg_plan_push_state (
+      plan,
+      CG_STATE_TARGET, CG_TUPLE3 (CG_TEXTURE (tmp_target), CG_INT (CG_BLEND_SRC_ALPHA), CG_INT (CG_BLEND_ONE_MINUS_SRC_ALPHA)),
+      CG_STATE_TARGET, CG_TEXTURE (tmp_depth),
+      CG_STATE_SHADER, CG_SHADER (shader),
+      CG_STATE_UNIFORM, CG_KEYVAL ("projection", CG_MAT4 (projection_arr)),
+      CG_STATE_UNIFORM, CG_KEYVAL ("transform", CG_MAT4 (transform_arr)),
+      CG_STATE_UNIFORM, CG_KEYVAL ("mvp", CG_MAT4 (mvp_arr)),
+      CG_STATE_UNIFORM, CG_KEYVAL ("normal", CG_MAT4 (normal_arr)),
+      CG_STATE_UNIFORM, CG_KEYVAL ("rotation", CG_MAT4 (rot_arr)),
+      NULL);
+
+  cg_plan_push_state (
+      plan,
+      CG_STATE_WRITE_MASK, CG_UINT (CG_WRITE_MASK_COLOR),
+      CG_STATE_DEPTH_FUNC, CG_INT (CG_TEST_ALWAYS),
+      CG_STATE_BACKFACE_CULL, CG_BOOL (FALSE),
+      CG_STATE_UNIFORM, CG_KEYVAL ("skybox", CG_BOOL (TRUE)),
+      CG_STATE_UNIFORM, CG_KEYVAL ("environmentMap", CG_TEXTURE (skybox)),
+      NULL);
+  cg_plan_append (plan, 1, cube_vertices, NULL);
+  cg_plan_pop (plan);
 
   cg_plan_push_state (
       plan,
       CG_STATE_WRITE_MASK, CG_UINT (CG_WRITE_MASK_ALL),
       CG_STATE_DEPTH_FUNC, CG_INT (CG_TEST_LEQUAL),
-      CG_STATE_TARGET, CG_TUPLE3 (CG_TEXTURE (tmp_target), CG_INT (CG_BLEND_SRC_ALPHA), CG_INT (CG_BLEND_ONE_MINUS_SRC_ALPHA)),
-      CG_STATE_TARGET, CG_TEXTURE (tmp_depth),
-      CG_STATE_UNIFORM, CG_KEYVAL ("mvp", CG_MAT4 (mvp_arr)),
-      CG_STATE_UNIFORM, CG_KEYVAL ("normal", CG_MAT4 (normal_arr)),
-      CG_STATE_UNIFORM, CG_KEYVAL ("rotation", CG_MAT4 (rot_arr)),
+      CG_STATE_BACKFACE_CULL, CG_BOOL (TRUE),
+      CG_STATE_UNIFORM, CG_KEYVAL ("skybox", CG_BOOL (FALSE)),
       CG_STATE_UNIFORM, CG_KEYVAL ("texture0", CG_TEXTURE (icon)),
       CG_STATE_UNIFORM, CG_KEYVAL ("colDiffuse", CG_VEC4 (1.0, 1.0, 1.0, 1.0)),
       NULL);
   cg_plan_append (plan, width * height * depth, cube_vertices, offsets, NULL);
+  cg_plan_pop (plan);
+
   cg_plan_pop (plan);
 
   cg_plan_blit (plan, tmp_target);
@@ -258,6 +309,8 @@ render (GtkGLArea *area,
 
   if (!cg_commands_dispatch (commands, &local_error))
     goto err;
+
+  /* g_print ("\n"); */
 
   cg_gpu_release_this_thread (gpu);
   return TRUE;
@@ -305,12 +358,19 @@ realize (GtkGLArea *area,
       cube_layout, G_N_ELEMENTS (cube_layout));
 
   icon = cg_texture_new_for_data_take (
-      gpu, g_steal_pointer (&icon_data),
-      icon_data_size, icon_width, icon_height,
-      icon_has_alpha
+      gpu, g_steal_pointer (&icon_img.data),
+      icon_img.data_size, icon_img.width, icon_img.height,
+      icon_img.has_alpha
           ? CG_FORMAT_RGBA8
           : CG_FORMAT_RGB8,
       1, 0);
+
+  skybox = cg_texture_new_cubemap_for_data_take (
+      gpu, g_steal_pointer (&skybox_img.data),
+      skybox_img.data_size, skybox_img.width,
+      skybox_img.has_alpha
+          ? CG_FORMAT_RGBA8
+          : CG_FORMAT_RGB8);
 
 done:
   if (local_error != NULL)
@@ -327,6 +387,7 @@ unrealize (GtkGLArea *area,
            gpointer user_data)
 {
   g_clear_pointer (&icon, cg_texture_unref);
+  g_clear_pointer (&skybox, cg_texture_unref);
   g_clear_pointer (&cube_vertices, cg_buffer_unref);
   g_clear_pointer (&offsets, cg_buffer_unref);
   g_clear_pointer (&tmp_target, cg_texture_unref);
@@ -389,7 +450,8 @@ fps_changed (GtkAdjustment *adjustment,
   if (fps < 1.0)
     timeout_source = 0;
   else
-    timeout_source = g_timeout_add ((1.0 / fps) * G_TIME_SPAN_MILLISECOND, (GSourceFunc)timeout, gl_area);
+    timeout_source = g_timeout_add (
+        (1.0 / fps) * G_TIME_SPAN_MILLISECOND, (GSourceFunc)timeout, gl_area);
 }
 
 static char *
@@ -404,10 +466,11 @@ static void
 on_activate (GtkApplication *app)
 {
   GtkWidget *window = NULL;
+  GtkWidget *gl_area = NULL;
   GtkWidget *box = NULL;
   GtkAdjustment *adjustment = NULL;
   GtkWidget *scale = NULL;
-  GtkWidget *gl_area = NULL;
+  GtkWidget *separator = NULL;
 
   gl_area = gtk_gl_area_new ();
   box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 10);
@@ -418,7 +481,8 @@ on_activate (GtkApplication *app)
                     G_CALLBACK (rotation_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
   gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Rotation", NULL);
+  gtk_scale_set_format_value_func (
+      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Rotation", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (width, 1, 32, 1, 2, 0);
@@ -426,7 +490,8 @@ on_activate (GtkApplication *app)
                     G_CALLBACK (width_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
   gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Width", NULL);
+  gtk_scale_set_format_value_func (
+      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Width", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (height, 1, 32, 1, 2, 0);
@@ -434,7 +499,8 @@ on_activate (GtkApplication *app)
                     G_CALLBACK (height_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
   gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Height", NULL);
+  gtk_scale_set_format_value_func (
+      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Height", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (depth, 1, 32, 1, 2, 0);
@@ -442,7 +508,8 @@ on_activate (GtkApplication *app)
                     G_CALLBACK (depth_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
   gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Depth", NULL);
+  gtk_scale_set_format_value_func (
+      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Depth", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (fps, 0, 160, 1, 10, 0);
@@ -450,8 +517,12 @@ on_activate (GtkApplication *app)
                     G_CALLBACK (fps_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
   gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Idle FPS", NULL);
+  gtk_scale_set_format_value_func (
+      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Idle FPS", NULL);
   gtk_box_append (GTK_BOX (box), scale);
+
+  separator = gtk_separator_new (GTK_ORIENTATION_HORIZONTAL);
+  gtk_box_append (GTK_BOX (box), separator);
 
   gtk_widget_set_hexpand (gl_area, TRUE);
   gtk_gl_area_set_allowed_apis (GTK_GL_AREA (gl_area), GDK_GL_API_GL);
@@ -467,30 +538,42 @@ on_activate (GtkApplication *app)
   gtk_window_present (GTK_WINDOW (window));
 }
 
-int
-main (int argc,
-      char *argv[])
+static gboolean
+init_image (Image *img, const char *path)
 {
   g_autoptr (GError) local_error = NULL;
   g_autoptr (GdkPixbuf) pixbuf = NULL;
   g_autoptr (GBytes) bytes = NULL;
-  GtkApplication *app = NULL;
 
-  pixbuf = gdk_pixbuf_new_from_file ("example/Icon.png", &local_error);
+  pixbuf = gdk_pixbuf_new_from_file (path, &local_error);
   if (pixbuf == NULL)
     {
-      g_critical ("Couldn't load 'example/Icon.png': %s "
+      g_critical ("Couldn't load '%s': %s "
                   "(Are you are running from the root dir of the repo?)",
-                  local_error->message);
-      return 1;
+                  path, local_error->message);
+      return FALSE;
     }
 
-  icon_width = gdk_pixbuf_get_width (pixbuf);
-  icon_height = gdk_pixbuf_get_height (pixbuf);
-  icon_has_alpha = gdk_pixbuf_get_has_alpha (pixbuf);
+  img->width = gdk_pixbuf_get_width (pixbuf);
+  img->height = gdk_pixbuf_get_height (pixbuf);
+  img->has_alpha = gdk_pixbuf_get_has_alpha (pixbuf);
 
   bytes = sanitize_pixbuf_memory (pixbuf, NULL);
-  icon_data = g_bytes_unref_to_data (g_steal_pointer (&bytes), &icon_data_size);
+  img->data = g_bytes_unref_to_data (g_steal_pointer (&bytes), &img->data_size);
+
+  return TRUE;
+}
+
+int
+main (int argc,
+      char *argv[])
+{
+  GtkApplication *app = NULL;
+
+  if (!init_image (&icon_img, "example/Icon.png"))
+    return 1;
+  if (!init_image (&skybox_img, "example/Skybox.png"))
+    return 1;
 
   app = gtk_application_new (
       "com.example.CpcGpuExample",

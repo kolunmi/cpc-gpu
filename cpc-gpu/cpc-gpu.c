@@ -669,9 +669,11 @@ cg_plan_begin_config (CgPlan *self)
   instr->pass.uniforms.hash = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, cg_priv_destroy_value);
   instr->pass.uniforms.order = g_ptr_array_new ();
   instr->pass.attributes = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-  instr->pass.write_mask = 0;
-  instr->pass.depth_test_func = CG_TEST_FUNC_0;
-  instr->pass.dest[0] = -1;
+  instr->pass.write_mask.val = 0;
+  instr->pass.write_mask.set = FALSE;
+  instr->pass.depth_test_func.val = CG_TEST_FUNC_0;
+  instr->pass.depth_test_func.set = FALSE;
+  instr->pass.dest.set = FALSE;
   instr->pass.clockwise_faces.val = FALSE;
   instr->pass.clockwise_faces.set = FALSE;
   instr->pass.backface_cull.val = TRUE;
@@ -870,12 +872,14 @@ cg_plan_config_dest (
   g_return_if_fail (width != 0);
   g_return_if_fail (height != 0);
 
-  dest = (int *)self->configuring->pass.dest;
+  dest = (int *)self->configuring->pass.dest.val;
 
   dest[0] = x;
   dest[1] = y;
   dest[2] = width;
   dest[3] = height;
+
+  self->configuring->pass.dest.set = TRUE;
 }
 
 void
@@ -886,7 +890,8 @@ cg_plan_config_write_mask (
   g_return_if_fail (self != NULL);
   g_return_if_fail (self->configuring != NULL);
 
-  self->configuring->pass.write_mask = mask;
+  self->configuring->pass.write_mask.val = mask;
+  self->configuring->pass.write_mask.set = TRUE;
 }
 
 void
@@ -898,7 +903,8 @@ cg_plan_config_depth_test_func (
   g_return_if_fail (self->configuring != NULL);
   g_return_if_fail (func > CG_TEST_FUNC_0 && func < CG_N_TEST_FUNCS);
 
-  self->configuring->pass.depth_test_func = func;
+  self->configuring->pass.depth_test_func.val = func;
+  self->configuring->pass.depth_test_func.set = TRUE;
 }
 
 void
@@ -953,16 +959,16 @@ cg_plan_push_group (CgPlan *self)
       if (self->configuring->pass.fake)
         self->configuring->depth = parent_pass->depth;
 
-      if (self->configuring->pass.dest[0] < 0)
-        memcpy (self->configuring->pass.dest,
-                parent_pass->pass.dest,
-                sizeof (self->configuring->pass.dest));
+      if (!self->configuring->pass.dest.set)
+        memcpy (self->configuring->pass.dest.val,
+                parent_pass->pass.dest.val,
+                sizeof (self->configuring->pass.dest.val));
 
-      if (self->configuring->pass.write_mask == 0)
-        self->configuring->pass.write_mask = parent_pass->pass.write_mask;
+      if (!self->configuring->pass.write_mask.set)
+        self->configuring->pass.write_mask.val = parent_pass->pass.write_mask.val;
 
-      if (self->configuring->pass.depth_test_func == 0)
-        self->configuring->pass.depth_test_func = parent_pass->pass.depth_test_func;
+      if (!self->configuring->pass.depth_test_func.set)
+        self->configuring->pass.depth_test_func.val = parent_pass->pass.depth_test_func.val;
 
       if (!self->configuring->pass.clockwise_faces.set)
         self->configuring->pass.clockwise_faces.val = parent_pass->pass.clockwise_faces.val;
@@ -976,6 +982,29 @@ cg_plan_push_group (CgPlan *self)
     }
   else
     {
+      self->configuring->pass.fake = FALSE;
+
+      if (!self->configuring->pass.write_mask.set)
+        {
+          self->configuring->pass.write_mask.val = CG_WRITE_MASK_ALL;
+          self->configuring->pass.write_mask.set = TRUE;
+        }
+      if (!self->configuring->pass.depth_test_func.set)
+        {
+          self->configuring->pass.depth_test_func.val = CG_TEST_LEQUAL;
+          self->configuring->pass.depth_test_func.set = TRUE;
+        }
+      if (!self->configuring->pass.clockwise_faces.set)
+        {
+          self->configuring->pass.clockwise_faces.val = FALSE;
+          self->configuring->pass.clockwise_faces.set = TRUE;
+        }
+      if (!self->configuring->pass.backface_cull.set)
+        {
+          self->configuring->pass.backface_cull.val = TRUE;
+          self->configuring->pass.backface_cull.set = TRUE;
+        }
+
       CG_PRIV_REPLACE_POINTER (
           &self->root_instr,
           g_node_new (g_steal_pointer (&self->configuring)),
@@ -1118,18 +1147,23 @@ validate_append (CgPlan *self)
     {
       CgPrivInstr *instr = node->data;
 
-      if (!has_shader) has_shader = instr->pass.shader != NULL;
-      if (!has_depth_func && !has_write_mask
-          && instr->pass.write_mask > 0
-          && !(instr->pass.write_mask & CG_WRITE_MASK_DEPTH))
+      if (!has_shader)
+        has_shader = instr->pass.shader != NULL;
+
+      if (!has_depth_func
+          && !has_write_mask
+          && instr->pass.write_mask.set
+          && !(instr->pass.write_mask.val & CG_WRITE_MASK_DEPTH))
         {
           has_write_mask = TRUE;
           has_depth_func = TRUE;
         }
       else
         {
-          if (!has_write_mask) has_write_mask = instr->pass.write_mask > 0;
-          if (!has_depth_func) has_depth_func = instr->pass.depth_test_func > 0;
+          if (!has_write_mask)
+            has_write_mask = instr->pass.write_mask.set;
+          if (!has_depth_func)
+            has_depth_func = instr->pass.depth_test_func.set;
         }
 
       if (has_shader && has_write_mask && has_depth_func)
@@ -1228,7 +1262,6 @@ cg_plan_blit (CgPlan *self,
   g_return_if_fail (self->configuring == NULL);
   g_return_if_fail (self->cur_instr != NULL);
   g_return_if_fail (src != NULL);
-  g_return_if_fail (validate_append (self));
 
   instr = CG_PRIV_CREATE (instr);
   instr->type = CG_PRIV_INSTR_BLIT;
@@ -1268,6 +1301,7 @@ cg_plan_unref_to_commands (
   g_autoptr (GError) local_error = NULL;
 
   g_return_val_if_fail (self != NULL, NULL);
+  g_return_val_if_fail (self->cur_instr == NULL, NULL);
 
   gpu = cg_gpu_ref (self->gpu);
 

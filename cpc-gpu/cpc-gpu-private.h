@@ -149,6 +149,8 @@ typedef struct
   {
     struct
     {
+      gboolean fake; /* means depth is the same as parent's */
+
       CgShader *shader;
       GArray *targets;
       GHashTable *attributes;
@@ -157,10 +159,22 @@ typedef struct
         GHashTable *hash;
         GPtrArray *order;
       } uniforms;
-      gboolean fake; /* means depth is the same as parent's */
-      int dest[4];
-      guint32 write_mask;
-      int depth_test_func;
+
+      struct
+      {
+        int val[4];
+        gboolean set;
+      } dest;
+      struct
+      {
+        guint32 val;
+        gboolean set;
+      } write_mask;
+      struct
+      {
+        int val;
+        gboolean set;
+      } depth_test_func;
       struct
       {
         gboolean val;
