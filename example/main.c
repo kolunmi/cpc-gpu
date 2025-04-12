@@ -310,8 +310,6 @@ render (GtkGLArea *area,
   if (!cg_commands_dispatch (commands, &local_error))
     goto err;
 
-  /* g_print ("\n"); */
-
   cg_gpu_release_this_thread (gpu);
   return TRUE;
 
