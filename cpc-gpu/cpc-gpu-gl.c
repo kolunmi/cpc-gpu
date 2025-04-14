@@ -575,14 +575,17 @@ clear_commands (CgCommands *self)
     g_atomic_ref_count_inc (&((type *)self)->refcount);     \
     return self;                                            \
   }                                                         \
+  static inline void                                        \
+      destroy_##name (parent_type *self)                    \
+  {                                                         \
+    clear_##name (self);                                    \
+    g_free (self);                                          \
+  }                                                         \
   static void                                               \
       name##_unref (parent_type *self)                      \
   {                                                         \
     if (g_atomic_ref_count_dec (&((type *)self)->refcount)) \
-      {                                                     \
-        clear_##name (self);                                \
-        g_free (self);                                      \
-      }                                                     \
+      destroy_##name (self);                                \
   }
 
 DEFINE_BASIC_OBJECT (plan, CglPlan, CgPlan)
@@ -1119,6 +1122,7 @@ ensure_texture (CgTexture *self,
 
 typedef struct
 {
+  CgCommands *commands;
   gboolean failure;
   GError **error;
 } EnsureData;
@@ -1414,6 +1418,7 @@ ensure_instr_node (GNode *node,
 static CgCommands *
 plan_unref_to_commands (
     CgPlan *self,
+    gboolean debug,
     GError **error)
 {
   CglPlan *gl_plan = (CglPlan *)self;
@@ -1429,9 +1434,12 @@ plan_unref_to_commands (
       commands = cg_priv_commands_new (self->gpu);
       gl_commands = (CglCommands *)commands;
 
+      commands->debug.enabled = debug;
+
       /* Simply grab the plan tree for now, no further compilation. */
       gl_commands->instrs = g_steal_pointer (&self->root_instr);
 
+      data.commands = commands;
       data.failure = FALSE;
       data.error = error;
 
@@ -1462,8 +1470,7 @@ plan_unref_to_commands (
             }
         }
 
-      clear_plan (self);
-      g_free (self);
+      destroy_plan (self);
 
       if (data.failure)
         return NULL;
@@ -1500,6 +1507,20 @@ static const GLenum gl_draw_buffer_enums[] = {
   GL_COLOR_ATTACHMENT30, GL_COLOR_ATTACHMENT31
 };
 
+static const char *gl_draw_buffer_str_enums[] = {
+  "GL_COLOR_ATTACHMENT0", "GL_COLOR_ATTACHMENT1", "GL_COLOR_ATTACHMENT2",
+  "GL_COLOR_ATTACHMENT3", "GL_COLOR_ATTACHMENT4", "GL_COLOR_ATTACHMENT5",
+  "GL_COLOR_ATTACHMENT6", "GL_COLOR_ATTACHMENT7", "GL_COLOR_ATTACHMENT8",
+  "GL_COLOR_ATTACHMENT9", "GL_COLOR_ATTACHMENT10", "GL_COLOR_ATTACHMENT11",
+  "GL_COLOR_ATTACHMENT12", "GL_COLOR_ATTACHMENT13", "GL_COLOR_ATTACHMENT14",
+  "GL_COLOR_ATTACHMENT15", "GL_COLOR_ATTACHMENT16", "GL_COLOR_ATTACHMENT17",
+  "GL_COLOR_ATTACHMENT18", "GL_COLOR_ATTACHMENT19", "GL_COLOR_ATTACHMENT20",
+  "GL_COLOR_ATTACHMENT21", "GL_COLOR_ATTACHMENT22", "GL_COLOR_ATTACHMENT23",
+  "GL_COLOR_ATTACHMENT24", "GL_COLOR_ATTACHMENT25", "GL_COLOR_ATTACHMENT26",
+  "GL_COLOR_ATTACHMENT27", "GL_COLOR_ATTACHMENT28", "GL_COLOR_ATTACHMENT29",
+  "GL_COLOR_ATTACHMENT30", "GL_COLOR_ATTACHMENT31"
+};
+
 static const GLenum gl_texture_slot_enums[] = {
   GL_TEXTURE0, GL_TEXTURE1, GL_TEXTURE2,
   GL_TEXTURE3, GL_TEXTURE4, GL_TEXTURE5,
@@ -1514,6 +1535,20 @@ static const GLenum gl_texture_slot_enums[] = {
   GL_TEXTURE30, GL_TEXTURE31
 };
 
+static const char *gl_texture_slot_str_enums[] = {
+  "GL_TEXTURE0", "GL_TEXTURE1", "GL_TEXTURE2",
+  "GL_TEXTURE3", "GL_TEXTURE4", "GL_TEXTURE5",
+  "GL_TEXTURE6", "GL_TEXTURE7", "GL_TEXTURE8",
+  "GL_TEXTURE9", "GL_TEXTURE10", "GL_TEXTURE11",
+  "GL_TEXTURE12", "GL_TEXTURE13", "GL_TEXTURE14",
+  "GL_TEXTURE15", "GL_TEXTURE16", "GL_TEXTURE17",
+  "GL_TEXTURE18", "GL_TEXTURE19", "GL_TEXTURE20",
+  "GL_TEXTURE21", "GL_TEXTURE22", "GL_TEXTURE23",
+  "GL_TEXTURE24", "GL_TEXTURE25", "GL_TEXTURE26",
+  "GL_TEXTURE27", "GL_TEXTURE28", "GL_TEXTURE29",
+  "GL_TEXTURE30", "GL_TEXTURE31"
+};
+
 static const GLenum test_func_map[CG_N_TEST_FUNCS] = {
   [CG_TEST_NEVER] = GL_NEVER,
   [CG_TEST_ALWAYS] = GL_ALWAYS,
@@ -1523,6 +1558,17 @@ static const GLenum test_func_map[CG_N_TEST_FUNCS] = {
   [CG_TEST_GEQUAL] = GL_GEQUAL,
   [CG_TEST_EQUAL] = GL_EQUAL,
   [CG_TEST_NOT_EQUAL] = GL_NOTEQUAL,
+};
+
+static const char *test_func_str_map[CG_N_TEST_FUNCS] = {
+  [CG_TEST_NEVER] = "GL_NEVER",
+  [CG_TEST_ALWAYS] = "GL_ALWAYS",
+  [CG_TEST_LESS] = "GL_LESS",
+  [CG_TEST_LEQUAL] = "GL_LEQUAL",
+  [CG_TEST_GREATER] = "GL_GREATER",
+  [CG_TEST_GEQUAL] = "GL_GEQUAL",
+  [CG_TEST_EQUAL] = "GL_EQUAL",
+  [CG_TEST_NOT_EQUAL] = "GL_NOTEQUAL",
 };
 
 static const GLenum blend_func_map[CG_N_BLENDS] = {
@@ -1547,6 +1593,28 @@ static const GLenum blend_func_map[CG_N_BLENDS] = {
   [CG_BLEND_ONE_MINUS_SRC1_ALPHA] = GL_ONE_MINUS_SRC1_ALPHA,
 };
 
+static const char *blend_func_str_map[CG_N_BLENDS] = {
+  [CG_BLEND_ZERO] = "GL_ZERO",
+  [CG_BLEND_ONE] = "GL_ONE",
+  [CG_BLEND_SRC_COLOR] = "GL_SRC_COLOR",
+  [CG_BLEND_ONE_MINUS_SRC_COLOR] = "GL_ONE_MINUS_SRC_COLOR",
+  [CG_BLEND_DST_COLOR] = "GL_DST_COLOR",
+  [CG_BLEND_ONE_MINUS_DST_COLOR] = "GL_ONE_MINUS_DST_COLOR",
+  [CG_BLEND_SRC_ALPHA] = "GL_SRC_ALPHA",
+  [CG_BLEND_ONE_MINUS_SRC_ALPHA] = "GL_ONE_MINUS_SRC_ALPHA",
+  [CG_BLEND_DST_ALPHA] = "GL_DST_ALPHA",
+  [CG_BLEND_ONE_MINUS_DST_ALPHA] = "GL_ONE_MINUS_DST_ALPHA",
+  [CG_BLEND_CONSTANT_COLOR] = "GL_CONSTANT_COLOR",
+  [CG_BLEND_ONE_MINUS_CONSTANT_COLOR] = "GL_ONE_MINUS_CONSTANT_COLOR",
+  [CG_BLEND_CONSTANT_ALPHA] = "GL_CONSTANT_ALPHA",
+  [CG_BLEND_ONE_MINUS_CONSTANT_ALPHA] = "GL_ONE_MINUS_CONSTANT_ALPHA",
+  [CG_BLEND_SRC_ALPHA_SATURATE] = "GL_SRC_ALPHA_SATURATE",
+  [CG_BLEND_SRC1_COLOR] = "GL_SRC1_COLOR",
+  [CG_BLEND_ONE_MINUS_SRC1_COLOR] = "GL_ONE_MINUS_SRC1_COLOR",
+  [CG_BLEND_SRC1_ALPHA] = "GL_SRC1_ALPHA",
+  [CG_BLEND_ONE_MINUS_SRC1_ALPHA] = "GL_ONE_MINUS_SRC1_ALPHA",
+};
+
 static gboolean
 setup_or_teardown (GLuint framebuffer,
                    GLuint blit_read_fb,
@@ -1566,8 +1634,14 @@ setup_or_teardown (GLuint framebuffer,
 
   if (setup && !instr->pass.fake)
     {
-      glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
-      glUseProgram (shader != NULL ? gl_shader->program : 0);
+      CG_PRIV_RUN (
+          data->commands,
+          glBindFramebuffer, _A (GL_FRAMEBUFFER, framebuffer),
+          "%s, %d", _A ("GL_FRAMEBUFFER", framebuffer));
+      CG_PRIV_RUN (
+          data->commands,
+          glUseProgram, _A (shader != NULL ? gl_shader->program : 0),
+          "%d", _A (shader != NULL ? gl_shader->program : 0));
     }
 
   if (!instr->pass.fake && (setup || teardown))
@@ -1586,15 +1660,24 @@ setup_or_teardown (GLuint framebuffer,
             {
               g_assert (depths == 0);
 
-              glFramebufferTexture2D (
-                  GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                  target->texture->init.msaa > 0
-                      ? GL_TEXTURE_2D_MULTISAMPLE
-                      : GL_TEXTURE_2D,
-                  teardown
-                      ? 0
-                      : gl_target->id,
-                  0);
+              CG_PRIV_RUN (
+                  data->commands,
+                  glFramebufferTexture2D,
+                  _A (
+                      GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                      target->texture->init.msaa > 0
+                          ? GL_TEXTURE_2D_MULTISAMPLE
+                          : GL_TEXTURE_2D,
+                      teardown ? 0 : gl_target->id,
+                      0),
+                  "%s, %s, %s, %d, %d",
+                  _A (
+                      "GL_FRAMEBUFFER", "GL_DEPTH_ATTACHMENT",
+                      target->texture->init.msaa > 0
+                          ? "GL_TEXTURE_2D_MULTISAMPLE"
+                          : "GL_TEXTURE_2D",
+                      teardown ? 0 : gl_target->id,
+                      0));
 
               depths++;
             }
@@ -1602,19 +1685,35 @@ setup_or_teardown (GLuint framebuffer,
             {
               g_assert (colors < G_N_ELEMENTS (gl_draw_buffer_enums));
 
-              glFramebufferTexture2D (
-                  GL_FRAMEBUFFER, gl_draw_buffer_enums[colors],
-                  target->texture->init.msaa > 0
-                      ? GL_TEXTURE_2D_MULTISAMPLE
-                      : GL_TEXTURE_2D,
-                  teardown
-                      ? 0
-                      : gl_target->id,
-                  0);
-              glBlendFunci (
-                  colors,
-                  blend_func_map[target->src_blend],
-                  blend_func_map[target->dst_blend]);
+              CG_PRIV_RUN (
+                  data->commands,
+                  glFramebufferTexture2D,
+                  _A (
+                      GL_FRAMEBUFFER, gl_draw_buffer_enums[colors],
+                      target->texture->init.msaa > 0
+                          ? GL_TEXTURE_2D_MULTISAMPLE
+                          : GL_TEXTURE_2D,
+                      teardown ? 0 : gl_target->id, 0),
+                  "%s, %s, %s, %d, %d",
+                  _A (
+                      "GL_FRAMEBUFFER", gl_draw_buffer_str_enums[colors],
+                      target->texture->init.msaa > 0
+                          ? "GL_TEXTURE_2D_MULTISAMPLE"
+                          : "GL_TEXTURE_2D",
+                      teardown ? 0 : gl_target->id, 0));
+
+              CG_PRIV_RUN (
+                  data->commands,
+                  glBlendFunci,
+                  _A (
+                      colors,
+                      blend_func_map[target->src_blend],
+                      blend_func_map[target->dst_blend]),
+                  "%s, %s, %s",
+                  _A (
+                      CG_PRIV_ADDRESS,
+                      blend_func_str_map[target->src_blend],
+                      blend_func_str_map[target->dst_blend]));
 
               colors++;
             }
@@ -1624,9 +1723,16 @@ setup_or_teardown (GLuint framebuffer,
         {
           GLenum status = 0;
 
-          glDrawBuffers (
-              CLAMP (instr->pass.targets->len, 1, G_N_ELEMENTS (gl_draw_buffer_enums)),
-              gl_draw_buffer_enums);
+          CG_PRIV_RUN (
+              data->commands,
+              glDrawBuffers,
+              _A (
+                  (int)CLAMP (instr->pass.targets->len, 1, G_N_ELEMENTS (gl_draw_buffer_enums)),
+                  gl_draw_buffer_enums),
+              "%d, %s",
+              _A (
+                  (int)CLAMP (instr->pass.targets->len, 1, G_N_ELEMENTS (gl_draw_buffer_enums)),
+                  CG_PRIV_ADDRESS));
 
           status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
           if (status != GL_FRAMEBUFFER_COMPLETE)
@@ -1684,24 +1790,39 @@ setup_or_teardown (GLuint framebuffer,
                           {
                             GLenum tmp_status = 0;
 
-                            glBindFramebuffer (
-                                GL_FRAMEBUFFER,
-                                j == 0
-                                    ? blit_read_fb
-                                    : blit_draw_fb);
+                            CG_PRIV_RUN (
+                                data->commands,
+                                glBindFramebuffer, _A (GL_FRAMEBUFFER, j == 0 ? blit_read_fb : blit_draw_fb),
+                                "%s, %d", _A ("GL_FRAMEBUFFER", j == 0 ? blit_read_fb : blit_draw_fb));
 
-                            glFramebufferTexture2D (
-                                GL_FRAMEBUFFER,
-                                value->texture->init.format == CG_PRIV_FORMAT_DEPTH
-                                    ? GL_DEPTH_ATTACHMENT
-                                    : GL_COLOR_ATTACHMENT0,
-                                (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
-                                    ? GL_TEXTURE_2D_MULTISAMPLE
-                                    : GL_TEXTURE_2D,
-                                j == 0
-                                    ? read_texture->id
-                                    : gl_texture->id,
-                                0);
+                            CG_PRIV_RUN (
+                                data->commands,
+                                glFramebufferTexture2D,
+                                _A (
+                                    GL_FRAMEBUFFER,
+                                    value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                        ? GL_DEPTH_ATTACHMENT
+                                        : GL_COLOR_ATTACHMENT0,
+                                    (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
+                                        ? GL_TEXTURE_2D_MULTISAMPLE
+                                        : GL_TEXTURE_2D,
+                                    j == 0
+                                        ? read_texture->id
+                                        : gl_texture->id,
+                                    0),
+                                "%s, %s, %s, %d, %d",
+                                _A (
+                                    "GL_FRAMEBUFFER",
+                                    value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                        ? "GL_DEPTH_ATTACHMENT"
+                                        : "GL_COLOR_ATTACHMENT0",
+                                    (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
+                                        ? "GL_TEXTURE_2D_MULTISAMPLE"
+                                        : "GL_TEXTURE_2D",
+                                    j == 0
+                                        ? read_texture->id
+                                        : gl_texture->id,
+                                    0));
 
                             tmp_status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
                             if (tmp_status != GL_FRAMEBUFFER_COMPLETE)
@@ -1714,50 +1835,109 @@ setup_or_teardown (GLuint framebuffer,
                               }
                           }
 
-                        glBindFramebuffer (GL_READ_FRAMEBUFFER, blit_read_fb);
-                        glBindFramebuffer (GL_DRAW_FRAMEBUFFER, blit_draw_fb);
-                        glBlitFramebuffer (
-                            0, 0, value->texture->init.width, value->texture->init.height,
-                            0, 0, value->texture->init.width, value->texture->init.height,
-                            value->texture->init.format == CG_PRIV_FORMAT_DEPTH
-                                ? GL_DEPTH_BUFFER_BIT
-                                : GL_COLOR_BUFFER_BIT,
-                            GL_NEAREST);
-                        glBindFramebuffer (GL_READ_FRAMEBUFFER, 0);
-                        glBindFramebuffer (GL_DRAW_FRAMEBUFFER, 0);
+                        CG_PRIV_RUN (
+                            data->commands,
+                            glBindFramebuffer, _A (GL_READ_FRAMEBUFFER, blit_read_fb),
+                            "%s, %d", _A ("GL_READ_FRAMEBUFFER", blit_read_fb));
+                        CG_PRIV_RUN (
+                            data->commands,
+                            glBindFramebuffer, _A (GL_DRAW_FRAMEBUFFER, blit_draw_fb),
+                            "%s, %d", _A ("GL_DRAW_FRAMEBUFFER", blit_draw_fb));
+
+                        CG_PRIV_RUN (
+                            data->commands,
+                            glBlitFramebuffer,
+                            _A (
+                                0, 0, value->texture->init.width, value->texture->init.height,
+                                0, 0, value->texture->init.width, value->texture->init.height,
+                                value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                    ? GL_DEPTH_BUFFER_BIT
+                                    : GL_COLOR_BUFFER_BIT,
+                                GL_NEAREST),
+                            "%d, %d, %d, %d, %d, %d, %d, %d, %s, %s",
+                            _A (
+                                0, 0, value->texture->init.width, value->texture->init.height,
+                                0, 0, value->texture->init.width, value->texture->init.height,
+                                value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                    ? "GL_DEPTH_BUFFER_BIT"
+                                    : "GL_COLOR_BUFFER_BIT",
+                                "GL_NEAREST"));
+
+                        CG_PRIV_RUN (
+                            data->commands,
+                            glBindFramebuffer, _A (GL_READ_FRAMEBUFFER, 0),
+                            "%s, %d", _A ("GL_READ_FRAMEBUFFER", 0));
+                        CG_PRIV_RUN (
+                            data->commands,
+                            glBindFramebuffer, _A (GL_DRAW_FRAMEBUFFER, 0),
+                            "%s, %d", _A ("GL_DRAW_FRAMEBUFFER", 0));
 
                         for (int j = 0; j < 2; j++)
                           {
-                            glBindFramebuffer (
-                                GL_FRAMEBUFFER,
-                                j == 0
-                                    ? blit_read_fb
-                                    : blit_draw_fb);
+                            CG_PRIV_RUN (
+                                data->commands,
+                                glBindFramebuffer, _A (GL_FRAMEBUFFER, j == 0 ? blit_read_fb : blit_draw_fb),
+                                "%s, %d", _A ("GL_FRAMEBUFFER", j == 0 ? blit_read_fb : blit_draw_fb));
 
-                            glFramebufferTexture2D (
-                                GL_FRAMEBUFFER,
-                                value->texture->init.format == CG_PRIV_FORMAT_DEPTH
-                                    ? GL_DEPTH_ATTACHMENT
-                                    : GL_COLOR_ATTACHMENT0,
-                                (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
-                                    ? GL_TEXTURE_2D_MULTISAMPLE
-                                    : GL_TEXTURE_2D,
-                                0, 0);
+                            CG_PRIV_RUN (
+                                data->commands,
+                                glFramebufferTexture2D,
+                                _A (
+                                    GL_FRAMEBUFFER,
+                                    value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                        ? GL_DEPTH_ATTACHMENT
+                                        : GL_COLOR_ATTACHMENT0,
+                                    (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
+                                        ? GL_TEXTURE_2D_MULTISAMPLE
+                                        : GL_TEXTURE_2D,
+                                    0, 0),
+                                "%s, %s, %s, %d, %d",
+                                _A (
+                                    "GL_FRAMEBUFFER",
+                                    value->texture->init.format == CG_PRIV_FORMAT_DEPTH
+                                        ? "GL_DEPTH_ATTACHMENT"
+                                        : "GL_COLOR_ATTACHMENT0",
+                                    (j == 0 ? read_texture->non_msaa : gl_texture->non_msaa) != NULL
+                                        ? "GL_TEXTURE_2D_MULTISAMPLE"
+                                        : "GL_TEXTURE_2D",
+                                    0, 0));
                           }
 
-                        glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
+                        CG_PRIV_RUN (
+                            data->commands,
+                            glBindFramebuffer, _A (GL_FRAMEBUFFER, framebuffer),
+                            "%s, %d", _A ("GL_FRAMEBUFFER", framebuffer));
                       }
                   }
 
-                glActiveTexture (gl_texture_slot_enums[textures + 1]);
-                glBindTexture (value->texture->init.cubemap
-                                   ? GL_TEXTURE_CUBE_MAP
-                                   : GL_TEXTURE_2D,
-                               teardown
-                                   ? 0
-                                   : gl_texture->id);
-                glUniform1i (uniform->location, teardown ? 0 : textures_int);
-                glActiveTexture (gl_texture_slot_enums[0]);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glActiveTexture, _A (gl_texture_slot_enums[textures + 1]),
+                    "%s", _A (gl_texture_slot_str_enums[textures + 1]));
+
+                CG_PRIV_RUN (
+                    data->commands,
+                    glBindTexture,
+                    _A (
+                        value->texture->init.cubemap
+                            ? GL_TEXTURE_CUBE_MAP
+                            : GL_TEXTURE_2D,
+                        teardown ? 0 : gl_texture->id),
+                    "%s, %d",
+                    _A (
+                        value->texture->init.cubemap
+                            ? "GL_TEXTURE_CUBE_MAP"
+                            : "GL_TEXTURE_2D",
+                        teardown ? 0 : gl_texture->id));
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniform1i, _A (uniform->location, teardown ? 0 : textures_int),
+                    "%d, %d", _A (uniform->location, teardown ? 0 : textures_int));
+
+                CG_PRIV_RUN (
+                    data->commands,
+                    glActiveTexture, _A (gl_texture_slot_enums[0]),
+                    "%s", _A (gl_texture_slot_str_enums[0]));
 
                 textures++;
               }
@@ -1773,41 +1953,100 @@ setup_or_teardown (GLuint framebuffer,
                         GUINT_TO_POINTER (uniform->location)));
                 g_assert (block_index > 0);
 
-                glUniformBlockBinding (gl_shader->program, block_index - 1, 0);
-                glBindBufferBase (GL_UNIFORM_BUFFER, 0, teardown ? 0 : gl_buffer->ubo_id);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniformBlockBinding, _A (gl_shader->program, block_index - 1, 0),
+                    "%d, %d, %d", _A (gl_shader->program, block_index - 1, 0));
+                CG_PRIV_RUN (
+                    data->commands,
+                    glBindBufferBase, _A (GL_UNIFORM_BUFFER, 0, teardown ? 0 : gl_buffer->ubo_id),
+                    "%s, %d, %d", _A ("GL_UNIFORM_BUFFER", 0, teardown ? 0 : gl_buffer->ubo_id));
               }
               break;
             case CG_TYPE_BOOL:
               if (!teardown)
-                glUniform1i (uniform->location, value->b ? GL_TRUE : GL_FALSE);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniform1i, _A (uniform->location, value->b ? GL_TRUE : GL_FALSE),
+                    "%d, %s", _A (uniform->location, value->b ? "GL_TRUE" : "GL_FALSE"));
               break;
             case CG_TYPE_INT:
               if (!teardown)
-                glUniform1i (uniform->location, value->i);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniform1i, _A (uniform->location, value->i),
+                    "%d, %d", _A (uniform->location, value->i));
               break;
             case CG_TYPE_UINT:
               if (!teardown)
-                glUniform1ui (uniform->location, value->ui);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniform1ui, _A (uniform->location, value->ui),
+                    "%d, %d", _A (uniform->location, value->ui));
               break;
             case CG_TYPE_FLOAT:
               if (!teardown)
-                glUniform1f (uniform->location, value->f);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniform1f, _A (uniform->location, value->f),
+                    "%d, %f", _A (uniform->location, value->f));
               break;
             case CG_TYPE_VEC2:
               if (!teardown)
-                glUniform2fv (uniform->location, 1, value->vec2);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniform2fv, _A (uniform->location, 1, value->vec2),
+                    "%d, %d, VEC2{%f %f}", _A (uniform->location, 1, value->vec2[0], value->vec2[1]));
               break;
             case CG_TYPE_VEC3:
               if (!teardown)
-                glUniform3fv (uniform->location, 1, value->vec3);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniform3fv, _A (uniform->location, 1, value->vec3),
+                    "%d, %d, VEC3{%f %f %f}",
+                    _A (
+                        uniform->location, 1,
+                        value->vec3[0],
+                        value->vec3[1],
+                        value->vec3[2]));
               break;
             case CG_TYPE_VEC4:
               if (!teardown)
-                glUniform4fv (uniform->location, 1, value->vec4);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniform4fv, _A (uniform->location, 1, value->vec4),
+                    "%d, %d, VEC4{%f %f %f %f}",
+                    _A (
+                        uniform->location, 1,
+                        value->vec4[0],
+                        value->vec4[1],
+                        value->vec4[2],
+                        value->vec4[3]));
               break;
             case CG_TYPE_MAT4:
               if (!teardown)
-                glUniformMatrix4fv (uniform->location, 1, GL_FALSE, value->mat4.initialized);
+                CG_PRIV_RUN (
+                    data->commands,
+                    glUniformMatrix4fv, _A (uniform->location, 1, GL_FALSE, value->mat4.initialized),
+                    "%d, %d, %s, MAT4{%f %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f}",
+                    _A (
+                        uniform->location, 1, "GL_FALSE",
+                        value->mat4.initialized[0],
+                        value->mat4.initialized[1],
+                        value->mat4.initialized[2],
+                        value->mat4.initialized[3],
+                        value->mat4.initialized[4],
+                        value->mat4.initialized[5],
+                        value->mat4.initialized[6],
+                        value->mat4.initialized[7],
+                        value->mat4.initialized[8],
+                        value->mat4.initialized[9],
+                        value->mat4.initialized[10],
+                        value->mat4.initialized[11],
+                        value->mat4.initialized[12],
+                        value->mat4.initialized[13],
+                        value->mat4.initialized[14],
+                        value->mat4.initialized[15]));
               break;
             default:
               g_assert_not_reached ();
@@ -1817,44 +2056,97 @@ setup_or_teardown (GLuint framebuffer,
 
   if (setup && !instr->pass.fake)
     {
-      glColorMask (GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-      glDepthMask (GL_TRUE);
-      glClearColor (0, 0, 0, 0);
-      glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      CG_PRIV_RUN (
+          data->commands,
+          glColorMask, _A (GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE),
+          "%s, %s, %s, %s", _A ("GL_TRUE", "GL_TRUE", "GL_TRUE", "GL_TRUE"));
+      CG_PRIV_RUN (
+          data->commands,
+          glDepthMask, _A (GL_TRUE),
+          "%s", _A ("GL_TRUE"));
+      CG_PRIV_RUN (
+          data->commands,
+          glClearColor, _A (0.0, 0.0, 0.0, 0.0),
+          "%f, %f, %f, %f", _A (0.0, 0.0, 0.0, 0.0));
+      CG_PRIV_RUN (
+          data->commands,
+          glClear, _A (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT),
+          "%s", _A ("GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT"));
     }
 
   if (!teardown)
     {
       if (instr->pass.dest.set)
-        glViewport (
-            instr->pass.dest.val[0],
-            instr->pass.dest.val[1],
-            instr->pass.dest.val[2],
-            instr->pass.dest.val[3]);
+        CG_PRIV_RUN (
+            data->commands,
+            glViewport,
+            _A (
+                instr->pass.dest.val[0],
+                instr->pass.dest.val[1],
+                instr->pass.dest.val[2],
+                instr->pass.dest.val[3]),
+            "%d, %d, %d, %d",
+            _A (
+                instr->pass.dest.val[0],
+                instr->pass.dest.val[1],
+                instr->pass.dest.val[2],
+                instr->pass.dest.val[3]));
 
       if (instr->pass.write_mask.set || (setup && !instr->pass.fake))
         {
-          glColorMask (
-              instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_RED ? GL_TRUE : GL_FALSE,
-              instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_GREEN ? GL_TRUE : GL_FALSE,
-              instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_BLUE ? GL_TRUE : GL_FALSE,
-              instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_ALPHA ? GL_TRUE : GL_FALSE);
-          glDepthMask (instr->pass.write_mask.val & CG_WRITE_MASK_DEPTH ? GL_TRUE : GL_FALSE);
+          CG_PRIV_RUN (
+              data->commands,
+              glColorMask,
+              _A (
+                  instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_RED ? GL_TRUE : GL_FALSE,
+                  instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_GREEN ? GL_TRUE : GL_FALSE,
+                  instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_BLUE ? GL_TRUE : GL_FALSE,
+                  instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_ALPHA ? GL_TRUE : GL_FALSE),
+              "%s, %s, %s, %s",
+              _A (
+                  instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_RED ? "GL_TRUE" : "GL_FALSE",
+                  instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_GREEN ? "GL_TRUE" : "GL_FALSE",
+                  instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_BLUE ? "GL_TRUE" : "GL_FALSE",
+                  instr->pass.write_mask.val & CG_WRITE_MASK_COLOR_ALPHA ? "GL_TRUE" : "GL_FALSE"));
+
+          CG_PRIV_RUN (
+              data->commands,
+              glDepthMask,
+              _A (
+                  instr->pass.write_mask.val & CG_WRITE_MASK_DEPTH ? GL_TRUE : GL_FALSE),
+              "%s",
+              _A (
+                  instr->pass.write_mask.val & CG_WRITE_MASK_DEPTH ? "GL_TRUE" : "GL_FALSE"));
         }
 
-      glEnable (GL_DEPTH_TEST);
+      CG_PRIV_RUN (
+          data->commands,
+          glEnable, _A (GL_DEPTH_TEST),
+          "%s", _A ("GL_DEPTH_TEST"));
       if (instr->pass.depth_test_func.set)
-        glDepthFunc (test_func_map[instr->pass.depth_test_func.val]);
+        CG_PRIV_RUN (
+            data->commands,
+            glDepthFunc, _A (test_func_map[instr->pass.depth_test_func.val]),
+            "%s", _A (test_func_str_map[instr->pass.depth_test_func.val]));
 
       if (instr->pass.clockwise_faces.set)
-        glFrontFace (instr->pass.clockwise_faces.val ? GL_CW : GL_CCW);
+        CG_PRIV_RUN (
+            data->commands,
+            glFrontFace, _A (instr->pass.clockwise_faces.val ? GL_CW : GL_CCW),
+            "%s", _A (instr->pass.clockwise_faces.val ? "GL_CW" : "GL_CCW"));
 
       if (instr->pass.backface_cull.set)
         {
           if (instr->pass.backface_cull.val)
-            glEnable (GL_CULL_FACE);
+            CG_PRIV_RUN (
+                data->commands,
+                glEnable, _A (GL_CULL_FACE),
+                "%s", _A ("GL_CULL_FACE"));
           else
-            glDisable (GL_CULL_FACE);
+            CG_PRIV_RUN (
+                data->commands,
+                glDisable, _A (GL_CULL_FACE),
+                "%s", _A ("GL_CULL_FACE"));
         }
     }
 
@@ -1865,13 +2157,17 @@ static gboolean
 draw_vertices (CgBuffer **buffers,
                guint n_buffers,
                CgShader *shader,
-               guint instances)
+               guint instances,
+               ProcessData *data)
 {
   CglShader *gl_shader = (CglShader *)shader;
   CglBuffer *first_buffer = (CglBuffer *)*buffers;
   guint max_length = 0;
 
-  glBindVertexArray (first_buffer->vao_id);
+  CG_PRIV_RUN (
+      data->commands,
+      glBindVertexArray, _A (first_buffer->vao_id),
+      "%d", _A (first_buffer->vao_id));
 
   for (guint i = 0; i < n_buffers; i++)
     {
@@ -1882,7 +2178,10 @@ draw_vertices (CgBuffer **buffers,
       g_assert (buffers[i]->spec != NULL);
 
       gl_buffer = (CglBuffer *)buffers[i];
-      glBindBuffer (GL_ARRAY_BUFFER, gl_buffer->vbo_id);
+      CG_PRIV_RUN (
+          data->commands,
+          glBindBuffer, _A (GL_ARRAY_BUFFER, gl_buffer->vbo_id),
+          "%s, %d", _A ("GL_ARRAY_BUFFER", gl_buffer->vbo_id));
 
       for (guint j = 0; j < buffers[i]->spec_length; j++)
         stride += buffers[i]->spec[j].num
@@ -1899,19 +2198,40 @@ draw_vertices (CgBuffer **buffers,
               buffers[i]->spec[j].name);
           g_assert (attribute != NULL);
 
-          glVertexAttribPointer (
-              attribute->location,
-              buffers[i]->spec[j].num,
-              buffers[i]->spec[j].type == CG_TYPE_FLOAT
-                  ? GL_FLOAT
-                  : GL_UNSIGNED_BYTE,
-              GL_FALSE,
-              stride,
-              GSIZE_TO_POINTER (offset));
-          glVertexAttribDivisor (
-              attribute->location,
-              buffers[i]->spec[j].instance_rate);
-          glEnableVertexAttribArray (attribute->location);
+          CG_PRIV_RUN (
+              data->commands,
+              glVertexAttribPointer,
+              _A (
+                  attribute->location,
+                  buffers[i]->spec[j].num,
+                  buffers[i]->spec[j].type == CG_TYPE_FLOAT
+                      ? GL_FLOAT
+                      : GL_UNSIGNED_BYTE,
+                  GL_FALSE,
+                  stride,
+                  GSIZE_TO_POINTER (offset)),
+              "%d, %d, %s, %s, %zu, %zu",
+              _A (
+                  attribute->location,
+                  buffers[i]->spec[j].num,
+                  buffers[i]->spec[j].type == CG_TYPE_FLOAT
+                      ? "GL_FLOAT"
+                      : "GL_UNSIGNED_BYTE",
+                  "GL_FALSE",
+                  stride,
+                  offset));
+
+          CG_PRIV_RUN (
+              data->commands,
+              glVertexAttribDivisor,
+              _A (attribute->location, buffers[i]->spec[j].instance_rate),
+              "%d, %d",
+              _A (attribute->location, buffers[i]->spec[j].instance_rate));
+
+          CG_PRIV_RUN (
+              data->commands,
+              glEnableVertexAttribArray, _A (attribute->location),
+              "%d", _A (attribute->location));
 
           offset += buffers[i]->spec[j].num
                     * (buffers[i]->spec[j].type == CG_TYPE_FLOAT
@@ -1925,9 +2245,15 @@ draw_vertices (CgBuffer **buffers,
     }
 
   if (instances > 1)
-    glDrawArraysInstanced (GL_TRIANGLES, 0, max_length, instances);
+    CG_PRIV_RUN (
+        data->commands,
+        glDrawArraysInstanced, _A (GL_TRIANGLES, 0, max_length, instances),
+        "%s, %d, %d, %d", _A ("GL_TRIANGLES", 0, max_length, instances));
   else
-    glDrawArrays (GL_TRIANGLES, 0, max_length);
+    CG_PRIV_RUN (
+        data->commands,
+        glDrawArrays, _A (GL_TRIANGLES, 0, max_length),
+        "%s, %d, %d", _A ("GL_TRIANGLES", 0, max_length));
 
   for (guint i = 0; i < n_buffers; i++)
     {
@@ -1936,22 +2262,32 @@ draw_vertices (CgBuffer **buffers,
       g_assert (buffers[i]->spec != NULL);
 
       gl_buffer = (CglBuffer *)buffers[i];
-      glBindBuffer (GL_ARRAY_BUFFER, gl_buffer->vbo_id);
+      CG_PRIV_RUN (
+          data->commands,
+          glBindBuffer, _A (GL_ARRAY_BUFFER, gl_buffer->vbo_id),
+          "%s, %d", _A ("GL_ARRAY_BUFFER", gl_buffer->vbo_id));
 
       for (guint j = 0; j < buffers[i]->spec_length; j++)
         {
           ShaderLocation *attribute = NULL;
 
+          /* TODO: maybe prevent multiple lookups in same function */
           attribute = g_hash_table_lookup (
               gl_shader->attribute_assoc,
               buffers[i]->spec[j].name);
           g_assert (attribute != NULL);
 
-          glDisableVertexAttribArray (attribute->location);
+          CG_PRIV_RUN (
+              data->commands,
+              glDisableVertexAttribArray, _A (attribute->location),
+              "%d", _A (attribute->location));
         }
     }
 
-  glBindVertexArray (0);
+  CG_PRIV_RUN (
+      data->commands,
+      glBindVertexArray, _A (0),
+      "%d", _A (0));
 
   return TRUE;
 }
@@ -1967,16 +2303,32 @@ blit (GLuint framebuffer,
   CglTexture *gl_texture = (CglTexture *)instr->blit.src;
   GLenum status = 0;
 
-  glBindFramebuffer (GL_FRAMEBUFFER, blit_read_fb);
-  glFramebufferTexture2D (
-      GL_FRAMEBUFFER,
-      instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
-          ? GL_DEPTH_ATTACHMENT
-          : GL_COLOR_ATTACHMENT0,
-      instr->blit.src->init.msaa > 0
-          ? GL_TEXTURE_2D_MULTISAMPLE
-          : GL_TEXTURE_2D,
-      gl_texture->id, 0);
+  CG_PRIV_RUN (
+      data->commands,
+      glBindFramebuffer, _A (GL_FRAMEBUFFER, blit_read_fb),
+      "%s, %d", _A ("GL_FRAMEBUFFER", blit_read_fb));
+  CG_PRIV_RUN (
+      data->commands,
+      glFramebufferTexture2D,
+      _A (
+          GL_FRAMEBUFFER,
+          instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
+              ? GL_DEPTH_ATTACHMENT
+              : GL_COLOR_ATTACHMENT0,
+          instr->blit.src->init.msaa > 0
+              ? GL_TEXTURE_2D_MULTISAMPLE
+              : GL_TEXTURE_2D,
+          gl_texture->id, 0),
+      "%s, %s, %s, %d, %d",
+      _A (
+          "GL_FRAMEBUFFER",
+          instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
+              ? "GL_DEPTH_ATTACHMENT"
+              : "GL_COLOR_ATTACHMENT0",
+          instr->blit.src->init.msaa > 0
+              ? "GL_TEXTURE_2D_MULTISAMPLE"
+              : "GL_TEXTURE_2D",
+          gl_texture->id, 0));
 
   status = glCheckFramebufferStatus (GL_FRAMEBUFFER);
   if (status != GL_FRAMEBUFFER_COMPLETE)
@@ -1988,28 +2340,70 @@ blit (GLuint framebuffer,
       return FALSE;
     }
 
-  glBindFramebuffer (GL_READ_FRAMEBUFFER, blit_read_fb);
-  glBindFramebuffer (GL_DRAW_FRAMEBUFFER, framebuffer);
-  glBlitFramebuffer (
-      0, 0, instr->blit.src->init.width, instr->blit.src->init.height,
-      pass_instr->pass.dest.val[0], pass_instr->pass.dest.val[1],
-      pass_instr->pass.dest.val[2], pass_instr->pass.dest.val[3],
-      instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
-          ? GL_DEPTH_BUFFER_BIT
-          : GL_COLOR_BUFFER_BIT,
-      GL_NEAREST);
-  glBindFramebuffer (GL_READ_FRAMEBUFFER, 0);
-  glBindFramebuffer (GL_DRAW_FRAMEBUFFER, 0);
+  CG_PRIV_RUN (
+      data->commands,
+      glBindFramebuffer, _A (GL_READ_FRAMEBUFFER, blit_read_fb),
+      "%s, %d", _A ("GL_READ_FRAMEBUFFER", blit_read_fb));
+  CG_PRIV_RUN (
+      data->commands,
+      glBindFramebuffer, _A (GL_DRAW_FRAMEBUFFER, framebuffer),
+      "%s, %d", _A ("GL_DRAW_FRAMEBUFFER", framebuffer));
 
-  glBindFramebuffer (GL_FRAMEBUFFER, blit_read_fb);
-  glFramebufferTexture2D (
-      GL_FRAMEBUFFER,
-      instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
-          ? GL_DEPTH_ATTACHMENT
-          : GL_COLOR_ATTACHMENT0,
-      GL_TEXTURE_2D, 0, 0);
+  CG_PRIV_RUN (
+      data->commands,
+      glBlitFramebuffer,
+      _A (
+          0, 0, instr->blit.src->init.width, instr->blit.src->init.height,
+          pass_instr->pass.dest.val[0], pass_instr->pass.dest.val[1],
+          pass_instr->pass.dest.val[2], pass_instr->pass.dest.val[3],
+          instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
+              ? GL_DEPTH_BUFFER_BIT
+              : GL_COLOR_BUFFER_BIT,
+          GL_NEAREST),
+      "%d, %d, %d, %d, %d, %d, %d, %d, %s, %s",
+      _A (
+          0, 0, instr->blit.src->init.width, instr->blit.src->init.height,
+          pass_instr->pass.dest.val[0], pass_instr->pass.dest.val[1],
+          pass_instr->pass.dest.val[2], pass_instr->pass.dest.val[3],
+          instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
+              ? "GL_DEPTH_BUFFER_BIT"
+              : "GL_COLOR_BUFFER_BIT",
+          "GL_NEAREST"));
 
-  glBindFramebuffer (GL_FRAMEBUFFER, framebuffer);
+  CG_PRIV_RUN (
+      data->commands,
+      glBindFramebuffer, _A (GL_READ_FRAMEBUFFER, 0),
+      "%s, %d", _A ("GL_READ_FRAMEBUFFER", 0));
+  CG_PRIV_RUN (
+      data->commands,
+      glBindFramebuffer, _A (GL_DRAW_FRAMEBUFFER, 0),
+      "%s, %d", _A ("GL_DRAW_FRAMEBUFFER", 0));
+
+  CG_PRIV_RUN (
+      data->commands,
+      glBindFramebuffer, _A (GL_FRAMEBUFFER, blit_read_fb),
+      "%s, %d", _A ("GL_FRAMEBUFFER", blit_read_fb));
+  CG_PRIV_RUN (
+      data->commands,
+      glFramebufferTexture2D,
+      _A (
+          GL_FRAMEBUFFER,
+          instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
+              ? GL_DEPTH_ATTACHMENT
+              : GL_COLOR_ATTACHMENT0,
+          GL_TEXTURE_2D, 0, 0),
+      "%s, %s, %s, %d, %d",
+      _A (
+          "GL_FRAMEBUFFER",
+          instr->blit.src->init.format == CG_PRIV_FORMAT_DEPTH
+              ? "GL_DEPTH_ATTACHMENT"
+              : "GL_COLOR_ATTACHMENT0",
+          "GL_TEXTURE_2D", 0, 0));
+
+  CG_PRIV_RUN (
+      data->commands,
+      glBindFramebuffer, _A (GL_FRAMEBUFFER, framebuffer),
+      "%s, %d", _A ("GL_FRAMEBUFFER", framebuffer));
 
   return TRUE;
 }
@@ -2067,13 +2461,16 @@ process_instr_node (GNode *node,
                       instr->vertices.many_buffers,
                       instr->vertices.n_buffers,
                       pass_instr->pass.shader,
-                      instr->vertices.instances))
+                      instr->vertices.instances,
+                      data))
                 return FALSE;
             }
           else if (!draw_vertices (
-                       &instr->vertices.one_buffer, 1,
+                       &instr->vertices.one_buffer,
+                       1,
                        pass_instr->pass.shader,
-                       instr->vertices.instances))
+                       instr->vertices.instances,
+                       data))
             return FALSE;
           break;
         case CG_PRIV_INSTR_BLIT:
@@ -2106,9 +2503,20 @@ commands_dispatch (
   if (!gpu_flush (self->gpu, error))
     return FALSE;
 
+  if (self->debug.enabled)
+    {
+      g_clear_pointer (&self->debug.calls.run, g_ptr_array_unref);
+      self->debug.calls.run = g_ptr_array_new_with_free_func (g_free);
+    }
+
   data.commands = self;
   data.error = error;
-  glGetIntegerv (GL_FRAMEBUFFER_BINDING, &data.framebuffer);
+
+  CG_PRIV_RUN (
+      self,
+      glGetIntegerv, _A (GL_FRAMEBUFFER_BINDING, &data.framebuffer),
+      "%s, %s", _A ("GL_FRAMEBUFFER_BINDING", CG_PRIV_ADDRESS));
+
   return process_instr_node (gl_commands->instrs, &data);
 }
 

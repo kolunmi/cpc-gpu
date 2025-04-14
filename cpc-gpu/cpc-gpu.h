@@ -1236,6 +1236,26 @@ CgCommands *cg_plan_unref_to_commands (
     CgPlan *self,
     GError **error) G_GNUC_WARN_UNUSED_RESULT;
 
+/*! @brief Like @a cg_plan_unref_to_commands but hint that
+ *         these commands should produce a list of API calls
+ *         when dispatched, queryable with
+ *         @a cg_commands_ref_last_debug_dispatch
+ *
+ * @param [in] self The plan object.
+ * @param [out] error The return location
+ *        for a recoverable error.
+ *
+ * @return A newly allocated @a CgCommands object,
+ *         or `NULL` if an error occured.
+ *
+ * @memberof CgPlan
+ *
+ */
+CPC_GPU_AVAILABLE_IN_ALL
+CgCommands *cg_plan_unref_to_debugging_commands (
+    CgPlan *self,
+    GError **error) G_GNUC_WARN_UNUSED_RESULT;
+
 /*! @brief Create a strong reference to
  *         a @a CgCommands object.
  *
@@ -1268,13 +1288,31 @@ void cg_commands_unref (gpointer self);
  *
  * @return Whether an error occured.
  *
- * @memberof CgPlan
+ * @memberof CgCommands
  *
  */
 CPC_GPU_AVAILABLE_IN_ALL
 gboolean cg_commands_dispatch (
     CgCommands *self,
     GError **error);
+
+/*! @brief Retrieve a buffer containing the API calls
+ *         made during the last dispatch cycle.
+ *
+ * @param [in] self The commands object.
+ *
+ * The commands object _must_ have been produced with
+ * @a cg_plan_unref_to_debugging_commands , otherwise
+ * a critical warning is emitted and the function
+ * returns.
+ *
+ * @return The buffer of API calls.
+ *
+ * @memberof CgCommands
+ *
+ */
+CPC_GPU_AVAILABLE_IN_ALL
+GPtrArray *cg_commands_ref_last_debug_dispatch (CgCommands *self);
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (CgGpu, cg_gpu_unref);
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (CgPlan, cg_plan_unref);

@@ -89,6 +89,7 @@ typedef struct
 
   CgCommands *(*plan_unref_to_commands) (
       CgPlan *self,
+      gboolean debug,
       GError **error);
 
   gboolean (*commands_dispatch) (
@@ -270,13 +271,44 @@ struct _CgCommands
 {
   CgGpu *gpu;
 
-  char *debug_output;
+  struct
+  {
+    gboolean enabled;
+    struct
+    {
+      GPtrArray *compile;
+      GPtrArray *run;
+    } calls;
+  } debug;
 };
 CgCommands *cg_priv_commands_new (CgGpu *gpu);
 void cg_priv_commands_finish (CgCommands *self);
 
+#define _CG_PRIV_CALL(commands, ptrarray, func, args, fmt, ...)   \
+  G_STMT_START                                                    \
+  {                                                               \
+    (func) args;                                                  \
+    if ((commands)->debug.enabled)                                \
+      {                                                           \
+        g_ptr_array_add (                                         \
+            (commands)->debug.calls.ptrarray,                     \
+            g_strdup_printf (                                     \
+                G_STRINGIFY (func) " (" fmt ")", ##__VA_ARGS__)); \
+      }                                                           \
+  }                                                               \
+  G_STMT_END
+
+#define CG_PRIV_COMPILE(commands, func, args, fmt, fmt_args) \
+  _CG_PRIV_CALL (commands, compile, func, (args), fmt, fmt_args)
+
+#define CG_PRIV_RUN(commands, func, args, fmt, fmt_args) \
+  _CG_PRIV_CALL (commands, run, func, (args), fmt, fmt_args)
+
+#define _A(...) __VA_ARGS__
+#define CG_PRIV_ADDRESS "[internal address]"
+
 extern const CgBackendImpl cg_gl_impl;
-extern const CgBackendImpl cg_vk_impl;
+/* extern const CgBackendImpl cg_vk_impl; */
 
 const char *cg_priv_get_type_name (int type);
 CgValue *cg_priv_transfer_value_from_static_foreign (

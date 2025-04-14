@@ -142,6 +142,9 @@ static Image skybox_img = { 0 };
 static guint timeout_source = 0;
 static GTimer *timer = NULL;
 
+static guint debug_refresh_source = 0;
+static GPtrArray *api_calls = NULL;
+
 static CgGpu *gpu = NULL;
 static CgShader *shader = NULL;
 static CgTexture *tmp_target = NULL;
@@ -303,12 +306,15 @@ render (GtkGLArea *area,
   cg_plan_blit (plan, tmp_target);
   cg_plan_pop (plan);
 
-  commands = cg_plan_unref_to_commands (g_steal_pointer (&plan), &local_error);
+  commands = cg_plan_unref_to_debugging_commands (g_steal_pointer (&plan), &local_error);
   if (commands == NULL)
     goto err;
 
   if (!cg_commands_dispatch (commands, &local_error))
     goto err;
+
+  g_clear_pointer (&api_calls, g_ptr_array_unref);
+  api_calls = cg_commands_ref_last_debug_dispatch (commands);
 
   cg_gpu_release_this_thread (gpu);
   return TRUE;
@@ -321,10 +327,11 @@ err:
   return FALSE;
 }
 
-static void
+static gboolean
 timeout (GtkGLArea *gl_area)
 {
   gtk_gl_area_queue_render (gl_area);
+  return G_SOURCE_CONTINUE;
 }
 
 static void
@@ -393,8 +400,7 @@ unrealize (GtkGLArea *area,
   g_clear_pointer (&shader, cg_shader_unref);
   g_clear_pointer (&gpu, cg_gpu_unref);
 
-  if (timeout_source > 0)
-    g_source_remove (timeout_source);
+  g_clear_handle_id (&timeout_source, g_source_remove);
   g_clear_pointer (&timer, g_timer_destroy);
 }
 
@@ -442,12 +448,9 @@ fps_changed (GtkAdjustment *adjustment,
              GParamSpec *pspec,
              GtkGLArea *gl_area)
 {
-  if (timeout_source > 0)
-    g_source_remove (timeout_source);
+  g_clear_handle_id (&timeout_source, g_source_remove);
   fps = gtk_adjustment_get_value (adjustment);
-  if (fps < 1.0)
-    timeout_source = 0;
-  else
+  if (fps >= 1.0)
     timeout_source = g_timeout_add (
         (1.0 / fps) * G_TIME_SPAN_MILLISECOND, (GSourceFunc)timeout, gl_area);
 }
@@ -460,18 +463,43 @@ scale_format (GtkScale *scale,
   return g_strdup_printf ("%s: %.0f", prefix, value);
 }
 
+static gboolean
+debug_refresh (GtkListBox *list_box)
+{
+  if (api_calls == NULL)
+    return G_SOURCE_CONTINUE;
+
+  gtk_list_box_remove_all (list_box);
+  for (guint i = 0; i < api_calls->len; i++)
+    {
+      GtkWidget *label = NULL;
+      label = gtk_label_new (g_ptr_array_index (api_calls, i));
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_list_box_append (list_box, label);
+    }
+
+  g_clear_pointer (&api_calls, g_ptr_array_unref);
+
+  return G_SOURCE_CONTINUE;
+}
+
 static void
 on_activate (GtkApplication *app)
 {
   GtkWidget *window = NULL;
-  GtkWidget *gl_area = NULL;
   GtkWidget *box = NULL;
   GtkAdjustment *adjustment = NULL;
   GtkWidget *scale = NULL;
-  GtkWidget *separator = NULL;
+  GtkWidget *vbox = NULL;
+  GtkWidget *gl_area = NULL;
+  GtkWidget *list_box = NULL;
+  GtkWidget *scrolled_window = NULL;
 
   gl_area = gtk_gl_area_new ();
-  box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 10);
+  list_box = gtk_list_box_new ();
+  scrolled_window = gtk_scrolled_window_new ();
+  box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+  vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
   window = gtk_application_window_new (app);
 
   adjustment = gtk_adjustment_new (main_rotation, 0, 360, 1, 10, 0);
@@ -519,18 +547,27 @@ on_activate (GtkApplication *app)
       GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Idle FPS", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
-  separator = gtk_separator_new (GTK_ORIENTATION_HORIZONTAL);
-  gtk_box_append (GTK_BOX (box), separator);
+  gtk_box_append (GTK_BOX (box), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
 
-  gtk_widget_set_hexpand (gl_area, TRUE);
+  gtk_widget_set_vexpand (gl_area, TRUE);
   gtk_gl_area_set_allowed_apis (GTK_GL_AREA (gl_area), GDK_GL_API_GL);
   gtk_gl_area_set_has_depth_buffer (GTK_GL_AREA (gl_area), FALSE);
   g_signal_connect (gl_area, "realize", G_CALLBACK (realize), NULL);
   g_signal_connect (gl_area, "unrealize", G_CALLBACK (unrealize), NULL);
   g_signal_connect (gl_area, "render", G_CALLBACK (render), NULL);
-  gtk_box_append (GTK_BOX (box), gl_area);
+  gtk_box_append (GTK_BOX (vbox), gl_area);
 
-  gtk_window_set_default_size (GTK_WINDOW (window), 1500, 600);
+  gtk_box_append (GTK_BOX (vbox), gtk_separator_new (GTK_ORIENTATION_VERTICAL));
+
+  gtk_widget_set_size_request (scrolled_window, -1, 300);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled_window), list_box);
+  debug_refresh_source = g_timeout_add_seconds (1, (GSourceFunc)debug_refresh, list_box);
+  gtk_box_append (GTK_BOX (vbox), scrolled_window);
+
+  gtk_widget_set_hexpand (vbox, TRUE);
+  gtk_box_append (GTK_BOX (box), vbox);
+
+  gtk_window_set_default_size (GTK_WINDOW (window), 1600, 1000);
   gtk_window_set_child (GTK_WINDOW (window), box);
 
   gtk_window_present (GTK_WINDOW (window));

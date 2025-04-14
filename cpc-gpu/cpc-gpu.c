@@ -362,7 +362,12 @@ commands_init (CgCommands *self)
 void
 cg_priv_commands_finish (CgCommands *self)
 {
-  g_clear_pointer (&self->debug_output, g_free);
+  if (self->debug.enabled)
+    {
+      g_clear_pointer (&self->debug.calls.compile, g_ptr_array_unref);
+      g_clear_pointer (&self->debug.calls.run, g_ptr_array_unref);
+    }
+
   g_clear_pointer (&self->gpu, cg_gpu_unref);
 }
 
@@ -1306,7 +1311,30 @@ cg_plan_unref_to_commands (
   gpu = cg_gpu_ref (self->gpu);
 
   CG_PRIV_TRY_ENTER_ORELSE_RETURN_VAL (self->gpu, NULL);
-  commands = self->gpu->impl->plan_unref_to_commands (self, &local_error);
+  commands = self->gpu->impl->plan_unref_to_commands (self, FALSE, &local_error);
+  CG_PRIV_LEAVE (gpu);
+
+  CG_PRIV_HANDLE_BACKEND_ERROR (commands != NULL, error, local_error, gpu, NULL);
+
+  return g_steal_pointer (&commands);
+}
+
+CgCommands *
+cg_plan_unref_to_debugging_commands (
+    CgPlan *self,
+    GError **error)
+{
+  g_autoptr (CgGpu) gpu = NULL;
+  g_autoptr (CgCommands) commands = NULL;
+  g_autoptr (GError) local_error = NULL;
+
+  g_return_val_if_fail (self != NULL, NULL);
+  g_return_val_if_fail (self->cur_instr == NULL, NULL);
+
+  gpu = cg_gpu_ref (self->gpu);
+
+  CG_PRIV_TRY_ENTER_ORELSE_RETURN_VAL (self->gpu, NULL);
+  commands = self->gpu->impl->plan_unref_to_commands (self, TRUE, &local_error);
   CG_PRIV_LEAVE (gpu);
 
   CG_PRIV_HANDLE_BACKEND_ERROR (commands != NULL, error, local_error, gpu, NULL);
@@ -1331,4 +1359,14 @@ cg_commands_dispatch (
   CG_PRIV_HANDLE_BACKEND_ERROR (success, error, local_error, self->gpu, FALSE);
 
   return TRUE;
+}
+
+GPtrArray *
+cg_commands_ref_last_debug_dispatch (CgCommands *self)
+{
+  g_return_val_if_fail (self != NULL, NULL);
+  g_return_val_if_fail (self->debug.enabled, NULL);
+  g_return_val_if_fail (self->debug.calls.run != NULL, NULL);
+
+  return g_ptr_array_ref (self->debug.calls.run);
 }
