@@ -1709,9 +1709,9 @@ setup_or_teardown (GLuint framebuffer,
                       colors,
                       blend_func_map[target->src_blend],
                       blend_func_map[target->dst_blend]),
-                  "%s, %s, %s",
+                  "%d, %s, %s",
                   _A (
-                      CG_PRIV_ADDRESS,
+                      colors,
                       blend_func_str_map[target->src_blend],
                       blend_func_str_map[target->dst_blend]));
 
