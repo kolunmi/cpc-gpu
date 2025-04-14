@@ -455,13 +455,13 @@ fps_changed (GtkAdjustment *adjustment,
         (1.0 / fps) * G_TIME_SPAN_MILLISECOND, (GSourceFunc)timeout, gl_area);
 }
 
-static char *
-scale_format (GtkScale *scale,
-              double value,
-              const char *prefix)
-{
-  return g_strdup_printf ("%s: %.0f", prefix, value);
-}
+// static char *
+// scale_format (GtkScale *scale,
+//               double value,
+//               const char *prefix)
+// {
+//   return g_strdup_printf ("%s: %.0f", prefix, value);
+// }
 
 static gboolean
 debug_refresh (GtkListBox *list_box)
@@ -474,6 +474,7 @@ debug_refresh (GtkListBox *list_box)
     {
       GtkWidget *label = NULL;
       label = gtk_label_new (g_ptr_array_index (api_calls, i));
+      gtk_widget_add_css_class (label, "monospace");
       gtk_label_set_xalign (GTK_LABEL (label), 0.0);
       gtk_list_box_append (list_box, label);
     }
@@ -495,6 +496,11 @@ on_activate (GtkApplication *app)
   GtkWidget *list_box = NULL;
   GtkWidget *scrolled_window = NULL;
 
+  g_object_set (
+      gtk_settings_get_default (),
+      "gtk-application-prefer-dark-theme", TRUE,
+      NULL);
+
   gl_area = gtk_gl_area_new ();
   list_box = gtk_list_box_new ();
   scrolled_window = gtk_scrolled_window_new ();
@@ -506,45 +512,45 @@ on_activate (GtkApplication *app)
   g_signal_connect (adjustment, "notify::value",
                     G_CALLBACK (rotation_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
-  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (
-      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Rotation", NULL);
+  // gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  // gtk_scale_set_format_value_func (
+  //     GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Rotation", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (width, 1, 32, 1, 2, 0);
   g_signal_connect (adjustment, "notify::value",
                     G_CALLBACK (width_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
-  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (
-      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Width", NULL);
+  // gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  // gtk_scale_set_format_value_func (
+  //     GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Width", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (height, 1, 32, 1, 2, 0);
   g_signal_connect (adjustment, "notify::value",
                     G_CALLBACK (height_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
-  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (
-      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Height", NULL);
+  // gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  // gtk_scale_set_format_value_func (
+  //     GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Height", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (depth, 1, 32, 1, 2, 0);
   g_signal_connect (adjustment, "notify::value",
                     G_CALLBACK (depth_value_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
-  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (
-      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Depth", NULL);
+  // gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  // gtk_scale_set_format_value_func (
+  //     GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Depth", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   adjustment = gtk_adjustment_new (fps, 0, 160, 1, 10, 0);
   g_signal_connect (adjustment, "notify::value",
                     G_CALLBACK (fps_changed), gl_area);
   scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, adjustment);
-  gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
-  gtk_scale_set_format_value_func (
-      GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Idle FPS", NULL);
+  // gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+  // gtk_scale_set_format_value_func (
+  //     GTK_SCALE (scale), (GtkScaleFormatValueFunc)scale_format, "Idle FPS", NULL);
   gtk_box_append (GTK_BOX (box), scale);
 
   gtk_box_append (GTK_BOX (box), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
