@@ -485,6 +485,45 @@ debug_refresh (GtkListBox *list_box)
 }
 
 static void
+write_to_file_clicked (GtkButton *self,
+                       gpointer user_data)
+{
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GFile) file = NULL;
+  g_autoptr (GFileOutputStream) outstream = NULL;
+
+  if (api_calls == NULL)
+    return;
+
+  file = g_file_new_for_path ("./api_calls.txt");
+  outstream = g_file_replace (
+      file, NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL, &error);
+  if (outstream == NULL)
+    goto err;
+
+  for (guint i = 0; i < api_calls->len; i++)
+    {
+      char *call = NULL;
+      gboolean result = FALSE;
+
+      call = g_ptr_array_index (api_calls, i);
+      result = g_output_stream_printf (
+          G_OUTPUT_STREAM (outstream), NULL, NULL, &error, "%s\n", call);
+      if (!result)
+        goto err;
+    }
+
+  if (!g_output_stream_close (G_OUTPUT_STREAM (outstream), NULL, &error))
+    goto err;
+
+  return;
+
+err:
+  if (error != NULL)
+    g_critical ("Could not write to file: %s", error->message);
+}
+
+static void
 on_activate (GtkApplication *app)
 {
   GtkWidget *window = NULL;
@@ -495,6 +534,7 @@ on_activate (GtkApplication *app)
   GtkWidget *gl_area = NULL;
   GtkWidget *list_box = NULL;
   GtkWidget *scrolled_window = NULL;
+  GtkWidget *button = NULL;
 
   g_object_set (
       gtk_settings_get_default (),
@@ -507,6 +547,7 @@ on_activate (GtkApplication *app)
   box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
   vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
   window = gtk_application_window_new (app);
+  button = gtk_button_new ();
 
   adjustment = gtk_adjustment_new (main_rotation, 0, 360, 1, 10, 0);
   g_signal_connect (adjustment, "notify::value",
@@ -569,6 +610,12 @@ on_activate (GtkApplication *app)
   gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled_window), list_box);
   debug_refresh_source = g_timeout_add_seconds (1, (GSourceFunc)debug_refresh, list_box);
   gtk_box_append (GTK_BOX (vbox), scrolled_window);
+
+  gtk_box_append (GTK_BOX (vbox), gtk_separator_new (GTK_ORIENTATION_VERTICAL));
+
+  gtk_button_set_label (GTK_BUTTON (button), "Write to File");
+  g_signal_connect (button, "clicked", G_CALLBACK (write_to_file_clicked), NULL);
+  gtk_box_append (GTK_BOX (vbox), button);
 
   gtk_widget_set_hexpand (vbox, TRUE);
   gtk_box_append (GTK_BOX (box), vbox);
