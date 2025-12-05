@@ -21,7 +21,7 @@
 
 #include "cpc-gpu-gobject.h"
 
-G_DEFINE_BOXED_TYPE (CgGpu, cpc_gpu, cg_gpu_ref, cg_gpu_unref);
+G_DEFINE_BOXED_TYPE (CgGpu, cg_gpu, cg_gpu_ref, cg_gpu_unref);
 G_DEFINE_BOXED_TYPE (CgShader, cg_shader, cg_shader_ref, cg_shader_unref);
 G_DEFINE_BOXED_TYPE (CgBuffer, cg_buffer, cg_buffer_ref, cg_buffer_unref);
 G_DEFINE_BOXED_TYPE (CgTexture, cg_texture, cg_texture_ref, cg_texture_unref);

@@ -28,26 +28,26 @@ G_BEGIN_DECLS
 
 #define CPC_TYPE_GPU cpc_gpu_get_type ()
 CPC_GPU_AVAILABLE_IN_ALL
-GType cpc_gpu_get_type (void) G_GNUC_CONST;
+GType cg_gpu_get_type (void) G_GNUC_CONST;
 
 #define CPC_TYPE_GPU_SHADER cpc_gpu_shader_get_type ()
 CPC_GPU_AVAILABLE_IN_ALL
-GType cpc_gpu_shader_get_type (void) G_GNUC_CONST;
+GType cg_shader_get_type (void) G_GNUC_CONST;
 
 #define CPC_TYPE_GPU_BUFFER cpc_gpu_buffer_get_type ()
 CPC_GPU_AVAILABLE_IN_ALL
-GType cpc_gpu_buffer_get_type (void) G_GNUC_CONST;
+GType cg_buffer_get_type (void) G_GNUC_CONST;
 
 #define CPC_TYPE_GPU_TEXTURE cpc_gpu_texture_get_type ()
 CPC_GPU_AVAILABLE_IN_ALL
-GType cpc_gpu_texture_get_type (void) G_GNUC_CONST;
+GType cg_texture_get_type (void) G_GNUC_CONST;
 
 #define CPC_TYPE_GPU_PLAN cpc_gpu_plan_get_type ()
 CPC_GPU_AVAILABLE_IN_ALL
-GType cpc_gpu_plan_get_type (void) G_GNUC_CONST;
+GType cg_plan_get_type (void) G_GNUC_CONST;
 
 #define CPC_TYPE_GPU_COMMANDS cpc_gpu_commands_get_type ()
 CPC_GPU_AVAILABLE_IN_ALL
-GType cpc_gpu_commands_get_type (void) G_GNUC_CONST;
+GType cg_commands_get_type (void) G_GNUC_CONST;
 
 G_END_DECLS
